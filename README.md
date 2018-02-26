@@ -1,0 +1,1 @@
+Provide real time updates on state of network neighbourhood (NICs, IPs, ARP table) of Linux system
