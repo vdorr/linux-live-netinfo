@@ -2,7 +2,15 @@
 {-# LANGUAGE ScopedTypeVariables, CPP, RecordWildCards #-}
 #define here (__FILE__ ++ ":" ++ show (__LINE__ :: Integer) ++ " ")
 
-module System.Linux.NetInfo where
+module System.Linux.NetInfo
+	( IfMap, Iface(..), IfNet(..), IP, Remote(..)
+	, Event(..)
+	, translateNews, mergeNews
+	, emptyNMap
+	, queryGetLink, queryGetAddr, queryGetNeigh
+--	, handleNews', handleNews''
+	, handleNews'''
+) where
 
 import System.Linux.Netlink
 import System.Linux.Netlink.Route
@@ -38,8 +46,10 @@ getFlags :: FiniteBits b => b -> [Int]
 getFlags x = catMaybes $ fmap (\bit -> if testBit x bit then Just bit else Nothing )
 	[ 0 .. finiteBitSize x - 1 ]
 
+#if 0
 getAttr :: Enum a => a -> Attributes -> Maybe ByteString
 getAttr a = M.lookup (fromEnum a)
+#endif
 
 --------------------------------------------------------------------------------
 
@@ -298,12 +308,13 @@ getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA
 		| otherwise = error here
 #endif
 
-
+#if 0
 handleNews' :: TVar IfMap -> Packet Message -> IO Bool
 handleNews' = handleNews''' (const (pure ())) newSubnet
 	where
 	newSubnet :: Event -> IO () --this is ping-all-in-subnet
 	newSubnet _ = return ()
+#endif
 
 #if 0
 handleNews' nmVar msg = do
