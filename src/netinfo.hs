@@ -7,28 +7,25 @@ import Control.Monad
 import Control.Concurrent.STM
 --import System.Posix.Process
 import Control.Concurrent
-
-import System.Linux.Netlink
-import System.Linux.Netlink.Constants
 --import qualified Data.Map as M
 import Data.Word
-
 import Network.Socket hiding (sendTo, recvFrom)
 import Network.Socket.ByteString ( recvFrom)
 --import qualified Data.ByteString as B
-
 import Numeric (showHex)
 import Data.Bits
 import Control.Exception
-
 import Data.Serialize
+
+import System.Console.ANSI (clearScreen)
+import System.Environment (getArgs)
+
+import System.Linux.Netlink
+import System.Linux.Netlink.Constants
 
 import System.Linux.NetInfo
 import System.Linux.Ping
 
-import System.Console.ANSI (clearScreen)
-
-import System.Environment (getArgs)
 
 --https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
 --https://superuser.com/questions/1135757/scanning-in-ipv6
@@ -58,6 +55,7 @@ newSubnet''' trace sock ip@[a,b,c,d] mask = do
 	--		print (here, sock)
 			forM_ y $ \h -> do
 				sendPing sock h
+				trace $ show (here, h)
 --				threadDelay 1000
 			trace $ show (here, "Done", showHex host "", length x)
 			return ()
@@ -138,7 +136,8 @@ main = do
 --XXX "ping mode" is enable by "--active"
 	when active $ void $ forkIO $
 		withPingSocket Nothing $ \sock -> do
-
+#if 1
+-- FIXME do not let sock leave the bracket
 			forkIO $ forever $ do
 				(s, src) <- recvFrom sock 40
 				atomically $ modifyTVar pingPending $ \case
@@ -150,11 +149,11 @@ main = do
 					Right IcmpHeader{icmp_type = 0, code = 0} -> do
 						qputstr $ show (here, "ping response from", src)
 					_ -> return ()
-
+#endif
 			forever $ do
 				(ip, netmask) <- atomically $ readTQueue pingQ
-				atomically $ modifyTVar pingPending (+1)
-				atomically $ readTVar pingPending >>= (guard . ( <= 8))
+--				atomically $ modifyTVar pingPending (+1)
+--				atomically $ readTVar pingPending >>= (guard . ( <= 8))
 				newSubnet''' qputstr sock ip netmask
 
 	let traceX = qputstr --putStrLn
@@ -176,24 +175,24 @@ main = do
 
 	forkIO $ do
 
-		query sock queryGetLink >>= mapM_ (handleNews''' trace ping nm)
-		query sock queryGetNeigh >>= mapM_ (handleNews''' trace ping nm)
+		query sock queryGetLink >>= mapM_ (collectNews trace ping nm)
+		query sock queryGetNeigh >>= mapM_ (collectNews trace ping nm)
 
 --XXX only now join neigborhood group
-		forkOS $ do
+		forkIO $ do
 			sock2 <- makeSocketGeneric eNETLINK_ROUTE
 			joinMulticastGroup sock2 eRTNLGRP_NEIGH
-			forever $ recvOne_ here traceX sock2 >>= (mapM_ (handleNews'''
+			forever $ recvOne_ here traceX sock2 >>= (mapM_ (collectNews
 				trace (error here) nm))
 
-		query sock queryGetAddr >>= mapM_ (handleNews''' trace ping nm)
+		query sock queryGetAddr >>= mapM_ (collectNews trace ping nm)
 
 		atomically (tryPutTMVar nmChanged ()) --trigger first dump
 
 		forever $ do
 			msg <- recvOne_ here traceX sock
 --			print (here, msg)
-			x <- foldM (\b a -> (b ||) <$> handleNews''' trace ping nm a) False msg
+			x <- foldM (\b a -> (b ||) <$> collectNews trace ping nm a) False msg
 			when x $
 				atomically $ void $ tryPutTMVar nmChanged ()
 --			return ()
@@ -205,10 +204,10 @@ main = do
 --	qtrace_ traceQ (here, "--------------------------------------------------------------------------------")
 
 	forever $ do
---		query sock queryGetLink >>= mapM_ (handleNews''' trace ping nm)
---		query sock queryGetAddr >>= mapM_ (handleNews''' trace ping nm)
---		query sock queryGetNeigh >>= mapM_ (handleNews''' trace ping nm)
---		recvOne sock >>= mapM_ (handleNews''' trace ping nm)
+--		query sock queryGetLink >>= mapM_ (collectNews trace ping nm)
+--		query sock queryGetAddr >>= mapM_ (collectNews trace ping nm)
+--		query sock queryGetNeigh >>= mapM_ (collectNews trace ping nm)
+--		recvOne sock >>= mapM_ (collectNews trace ping nm)
 --		updated <- atomically $ readTVar nm
 --		dumpIfMap updated
 --		threadDelay 2000000

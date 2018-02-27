@@ -9,7 +9,7 @@ module System.Linux.NetInfo
 	, emptyNMap
 	, queryGetLink, queryGetAddr, queryGetNeigh
 --	, handleNews', handleNews''
-	, handleNews'''
+	, collectNews
 	, tapNetlink
 	, dumpIfMap
 ) where
@@ -333,13 +333,13 @@ handleNews' nmVar msg = do
 	newSubnet ip mask = return ()
 #endif
 
-handleNews'''
+collectNews
   :: (String -> IO ())
      -> (Event -> IO ())
      -> TVar IfMap
      -> Packet Message
      -> IO Bool
-handleNews''' trace newSubnet nmVar msg = do
+collectNews trace newSubnet nmVar msg = do
 	nm <- atomically $ readTVar nmVar
 	nm' <- handleNews'' trace newSubnet nm msg
 	case nm' of
