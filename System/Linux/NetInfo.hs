@@ -124,40 +124,43 @@ data Event'
 
 
 --translateNews :: Applicative m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
-translateNews trace _ _ err@ErrorMsg {}
+translateNews :: Applicative a =>
+		(String -> a ())
+                      -> Packet Message
+                      -> a (Maybe Event')
+translateNews trace (err@ErrorMsg {})
 	= trace (show (here, err))
-	*> pure $ Just $ ErrorEvent $ show err
-translateNews _ _  _ DoneMsg {}
+	*> pure (Just $ ErrorEvent $ show err)
+translateNews _ (DoneMsg {})
 	= pure Nothing
-translateNews trace _ nm (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
+translateNews trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
 	| messageType == eRTM_NEWLINK, Just name <- getLinkName attr, Just mac <- getLinkAddress attr
 		= trace (show (here, "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
-		*> pure $ Just $ AddIface interfaceIndex name mac (interfaceFlags .&. fIFF_UP /= 0)
+		*> pure (Just $ AddIface interfaceIndex name mac (interfaceFlags .&. fIFF_UP /= 0))
 	| messageType == eRTM_DELLINK
 		= trace (show (here, "remove iface", interfaceIndex, getLinkName attr))
-		*> pure $ Just $ DelIface interfaceIndex
+		*> pure (Just $ DelIface interfaceIndex)
 	| otherwise
 		= trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
 		*> pure Nothing
-translateNews trace newSubnet nm (Packet Header{..} NAddrMsg {..} attr)
+translateNews trace (Packet Header{..} NAddrMsg {..} attr)
 	| messageType == eRTM_NEWADDR, Just ip <- getIPAttr attr
 		= trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> newSubnet (NewSubnet ip addrMaskLength)
-		*> pure $ Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength)
+		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| messageType == eRTM_DELADDR, Just ip <- getIPAttr attr
 		= trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> pure $ Just $ DelSubnet' addrInterfaceIndex ip
+		*> pure (Just $ DelSubnet' addrInterfaceIndex ip)
 	| otherwise
 		= trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
 		*> pure Nothing
-translateNews trace _ nm (Packet Header{..} NNeighMsg{..} attr)
+translateNews trace (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 --		, testBit neighState fNUD_REACHABLE
 		= trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
-		*> pure $ Just $ AddNeigbour (fromIntegral neighIfindex) mac $ Remote ip --FIXME uneasy feeling about fromIntegral
+		*> pure (Just $ AddNeigbour (fromIntegral neighIfindex) mac $ Remote ip) --FIXME uneasy feeling about fromIntegral
 	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 		= trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
-		*> pure $ Just $ DelNeighbour (fromIntegral neighIfindex) mac (Remote ip)
+		*> pure (Just $ DelNeighbour (fromIntegral neighIfindex) mac (Remote ip))
 	| otherwise
 		= trace (show (here, showMessageType messageType,
 			getFlags neighState,
