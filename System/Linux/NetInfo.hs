@@ -11,6 +11,7 @@ module System.Linux.NetInfo
 --	, handleNews', handleNews''
 	, handleNews'''
 	, tapNetlink
+	, dumpIfMap
 ) where
 
 import System.Linux.Netlink
@@ -25,6 +26,7 @@ import Data.ByteString.Char8 (ByteString, unpack) --append, init, pack,
 import Data.Bits
 import Data.Maybe
 import Data.Char (ord)
+import Control.Monad
 
 --------------------------------------------------------------------------------
 
@@ -358,4 +360,23 @@ tapNetlink = do
 	joinMulticastGroup sock eRTNLGRP_NEIGH
 #endif
 	return sock
+
+--------------------------------------------------------------------------------
+
+--FIXME decouple from IO
+dumpIfMap :: (String -> IO ()) -> IfMap -> IO ()
+dumpIfMap put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets remotes up) -> do
+	put $ show ifIndex ++ " " ++ ifName ++ " " ++ show mac ++
+		(if up then " UP" else " DOWN")
+--		(show up)
+	put $ "\tnets:"
+	forM_ (M.toList nets) $ \(ip, IfNet mask) -> do
+		put $ "\t\t" ++ show ip ++ "/" ++ show mask
+	put $ "\tremotes:"
+	forM_ (M.toList remotes) $ \(mac, ips) -> do
+		put $ "\t\t" ++ show mac
+		forM_ ips $ \(Remote ip) -> do
+			put $ "\t\t\t" ++ show ip
+
+--------------------------------------------------------------------------------
 

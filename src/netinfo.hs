@@ -10,7 +10,7 @@ import Control.Concurrent
 
 import System.Linux.Netlink
 import System.Linux.Netlink.Constants
-import qualified Data.Map as M
+--import qualified Data.Map as M
 import Data.Word
 
 import Network.Socket hiding (sendTo, recvFrom)
@@ -66,22 +66,6 @@ newSubnet''' trace sock ip@[a,b,c,d] mask = do
 newSubnet''' trace _ ip mask = do
 	trace $ show (here, ip, mask, "IGNORED!")
 #endif
-
---------------------------------------------------------------------------------
-
-dump :: (String -> IO ()) -> IfMap -> IO ()
-dump put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets remotes up) -> do
-	put $ show ifIndex ++ " " ++ ifName ++ " " ++ show mac ++
-		(if up then " UP" else " DOWN")
---		(show up)
-	put $ "\tnets:"
-	forM_ (M.toList nets) $ \(ip, IfNet mask) -> do
-		put $ "\t\t" ++ show ip ++ "/" ++ show mask
-	put $ "\tremotes:"
-	forM_ (M.toList remotes) $ \(mac, ips) -> do
-		put $ "\t\t" ++ show mac
-		forM_ ips $ \(Remote ip) -> do
-			put $ "\t\t\t" ++ show ip
 
 --------------------------------------------------------------------------------
 
@@ -204,7 +188,6 @@ main = do
 
 		query sock queryGetAddr >>= mapM_ (handleNews''' trace ping nm)
 
-
 		atomically (tryPutTMVar nmChanged ()) --trigger first dump
 
 		forever $ do
@@ -217,7 +200,7 @@ main = do
 
 --	print (here, "--------------------------------------------------------------------------------")
 
---	atomically (tryPutTMVar nmChanged ()) --trigger first dump
+--	atomically (tryPutTMVar nmChanged ()) --trigger first dumpIfMap
 --		>>= print
 --	qtrace_ traceQ (here, "--------------------------------------------------------------------------------")
 
@@ -227,7 +210,7 @@ main = do
 --		query sock queryGetNeigh >>= mapM_ (handleNews''' trace ping nm)
 --		recvOne sock >>= mapM_ (handleNews''' trace ping nm)
 --		updated <- atomically $ readTVar nm
---		dump updated
+--		dumpIfMap updated
 --		threadDelay 2000000
 
 		updated <- atomically $ do
@@ -237,7 +220,7 @@ main = do
 #if 1
 		clearScreen
 		qputstr "--------------------------------------------------------------------------------"
-		dump qputstr updated
+		dumpIfMap qputstr updated
 #endif
 		return ()
 
