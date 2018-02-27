@@ -10,6 +10,7 @@ module System.Linux.NetInfo
 	, queryGetLink, queryGetAddr, queryGetNeigh
 --	, handleNews', handleNews''
 	, handleNews'''
+	, tapNetlink
 ) where
 
 import System.Linux.Netlink
@@ -346,4 +347,15 @@ handleNews''' trace newSubnet nmVar msg = do
 		_ -> pure False
 
 --------------------------------------------------------------------------------
+
+tapNetlink :: IO NetlinkSocket
+tapNetlink = do
+	sock <- makeSocketGeneric eNETLINK_ROUTE
+
+#if 1
+	joinMulticastGroup sock eRTNLGRP_LINK
+	joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
+	joinMulticastGroup sock eRTNLGRP_NEIGH
+#endif
+	return sock
 

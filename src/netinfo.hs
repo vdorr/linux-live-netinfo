@@ -5,7 +5,7 @@
 
 import Control.Monad
 import Control.Concurrent.STM
-import System.Posix.Process
+--import System.Posix.Process
 import Control.Concurrent
 
 import System.Linux.Netlink
@@ -69,17 +69,6 @@ newSubnet''' trace _ ip mask = do
 
 --------------------------------------------------------------------------------
 
-{-
-
-fping -ag 192.168.0.0/24
-
-sudo -s -H
-echo 8388608 > /proc/sys/net/core/rmem_max
-
--}
-
---------------------------------------------------------------------------------
-
 dump :: (String -> IO ()) -> IfMap -> IO ()
 dump put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets remotes up) -> do
 	put $ show ifIndex ++ " " ++ ifName ++ " " ++ show mac ++
@@ -115,6 +104,12 @@ recvOne_ note trace sock
 		trace $ show (here, "RECV FAILURE", note, (e :: IOException))
 		return []
 
+--------------------------------------------------------------------------------
+
+{-
+fping -ag 192.168.0.0/24
+-}
+
 main :: IO ()
 main = do
 
@@ -122,15 +117,9 @@ main = do
 	let active = take 1 args == ["--active"]
 
 --http://elixir.free-electrons.com/linux/v4.15-rc5/source/include/uapi/linux/netlink.h
-	sock <- makeSocketGeneric eNETLINK_ROUTE
 
-	pid <- getProcessID
+	sock <- tapNetlink
 
-#if 1
-	joinMulticastGroup sock eRTNLGRP_LINK
-	joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
-	joinMulticastGroup sock eRTNLGRP_NEIGH
-#endif
 	traceQ <- newTQueueIO
 	forkIO ( forever $ atomically (readTQueue traceQ) >>= putStrLn )
 
@@ -171,8 +160,6 @@ main = do
 				atomically $ modifyTVar pingPending $ \case
 					0 -> 0
 					x -> x - 1
---					x | x > 0 -> x - 1
---					x -> x
 				let msg = runGet (ipv4Packet getICMPHeader) s
 --				print (here, src, B.length s, "received:", runGet (ipv4Packet getICMPHeader) s)
 				case msg of
@@ -183,11 +170,8 @@ main = do
 			forever $ do
 				(ip, netmask) <- atomically $ readTQueue pingQ
 				atomically $ modifyTVar pingPending (+1)
---				qtrace (here, "!!!!!!!!!! ONE !!!!!!!!!!!", ip, netmask)
 				atomically $ readTVar pingPending >>= (guard . ( <= 8))
---				qtrace (here, "!!!!!!!!!!! TWO !!!!!!!!!!", ip, netmask)
 				newSubnet''' qputstr sock ip netmask
---				qtrace (here, "!!!!!!!!!!! THREE !!!!!!!!!!", ip, netmask)
 
 	let traceX = qputstr --putStrLn
 #if 0
@@ -222,15 +206,6 @@ main = do
 
 
 		atomically (tryPutTMVar nmChanged ()) --trigger first dump
---			>>= print
-
---		initial <- atomically $ readTVar nm
-
---		let subnets = concat $ fmap (fmap (fmap ifnLength) . M.toList . ifaceNets) $ M.elems initial
---		print (here, subnets)
---XXX XXX XXX
---		forM_ subnets $ uncurry newSubnet
---		print (here)
 
 		forever $ do
 			msg <- recvOne_ here traceX sock
