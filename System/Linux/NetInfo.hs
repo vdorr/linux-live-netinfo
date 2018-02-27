@@ -114,10 +114,10 @@ data Event'
 
 	| AddIface Word32 String LinkAddress Bool -- ^ index, name, mac, is up
 	| DelIface Word32
-	| UpdateIface Word32 String Bool -- ^ Mainly up/down
+--TODO	| UpdateIface Word32 String Bool -- ^ Mainly up/down
 
 	| AddNeigbour Word32 LinkAddress Remote
-	| DelNeighbour Word32 Remote
+	| DelNeighbour Word32 LinkAddress Remote
 
 	| ErrorEvent String
 	deriving (Show, Eq, Ord)
@@ -150,7 +150,6 @@ translateNews trace newSubnet nm (Packet Header{..} NAddrMsg {..} attr)
 	| otherwise
 		= trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
 		*> pure Nothing
-
 translateNews trace _ nm (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 --		, testBit neighState fNUD_REACHABLE
@@ -158,13 +157,52 @@ translateNews trace _ nm (Packet Header{..} NNeighMsg{..} attr)
 		*> pure $ Just $ AddNeigbour (fromIntegral neighIfindex) mac $ Remote ip --FIXME uneasy feeling about fromIntegral
 	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 		= trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
-		*> pure $ Just $ DelNeighbour (fromIntegral neighIfindex) (Remote ip)
+		*> pure $ Just $ DelNeighbour (fromIntegral neighIfindex) mac (Remote ip)
 	| otherwise
 		= trace (show (here, showMessageType messageType,
 			getFlags neighState,
 			getLLAddr attr,
 			fmap (fmap ord.unpack) (getDstAddr attr) )) --should not happen
 		*> pure Nothing
+
+--------------------------------------------------------------------------------
+
+mergeNews :: M.Map Word32 Iface -> Event' -> M.Map Word32 Iface
+mergeNews nm (ErrorEvent _) = nm
+mergeNews nm (AddIface interfaceIndex name mac isUp)
+	= M.insert interfaceIndex
+		(Iface name mac M.empty M.empty isUp)
+		nm
+mergeNews nm (DelIface interfaceIndex)
+	= M.delete interfaceIndex nm
+mergeNews nm (AddSubnet addrInterfaceIndex ip ifNet)
+	= M.adjust
+		(\i -> i { ifaceNets =
+			M.insert ip ifNet $ ifaceNets i })
+		addrInterfaceIndex
+		nm
+mergeNews nm (DelSubnet' addrInterfaceIndex ip)
+	= M.adjust
+		(\i -> i { ifaceNets =
+			M.delete ip $ ifaceNets i })
+		addrInterfaceIndex
+		nm
+mergeNews nm (AddNeigbour neighIfindex mac remote)
+	= M.adjust
+		(\i -> i { ifaceRemotes =
+			M.insertWith S.union mac (S.singleton remote) $ ifaceRemotes i })
+		neighIfindex
+		nm
+mergeNews nm (DelNeighbour neighIfindex mac remote)
+	= M.adjust
+		(\i -> i { ifaceRemotes =
+			M.alter
+				(\remotes -> case fmap (S.delete remote) remotes of
+					Just s' | not $ S.null s' -> Just s'
+					_ -> Nothing )
+				mac $ ifaceRemotes i })
+		(fromIntegral neighIfindex)
+		nm
 
 --------------------------------------------------------------------------------
 
