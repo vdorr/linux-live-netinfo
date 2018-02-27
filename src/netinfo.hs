@@ -27,6 +27,7 @@ import Data.Serialize
 import System.Linux.NetInfo
 import System.Linux.Ping
 
+import System.Console.ANSI (clearScreen)
 
 --https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
 --https://superuser.com/questions/1135757/scanning-in-ipv6
@@ -249,6 +250,7 @@ main = do
 --			print (here, updated)
 #if 1
 		qputstr ">>>"
+		clearScreen
 		dump qputstr updated
 		qputstr "<<<"
 #endif
