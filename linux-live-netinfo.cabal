@@ -17,7 +17,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 
-executable asn1-parse-set
+executable netinfo
   main-is:             netinfo.hs
   -- other-modules:       
   -- other-extensions:    

@@ -12,10 +12,9 @@ import System.Linux.Netlink
 import System.Linux.Netlink.Constants
 import qualified Data.Map as M
 import Data.Word
---import qualified Data.Set as S
 
 import Network.Socket hiding (sendTo, recvFrom)
-import Network.Socket.ByteString (sendTo, recvFrom)
+import Network.Socket.ByteString ( recvFrom)
 import qualified Data.ByteString as B
 
 import Numeric (showHex)
@@ -28,6 +27,8 @@ import System.Linux.NetInfo
 import System.Linux.Ping
 
 import System.Console.ANSI (clearScreen)
+
+import System.Environment (getArgs)
 
 --https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
 --https://superuser.com/questions/1135757/scanning-in-ipv6
@@ -52,11 +53,10 @@ newSubnet''' trace sock ip@[a,b,c,d] mask = do
 --		bracket (pingSocket $ Just $ SockAddrInet 0 host) close $ \sock -> do
 
 			trace $ show (here, "Begin", ip, mask, host, showHex host "", showHex m "")
-			let x = [1..(2^(32 - mask))-2] --XXX obviously i don't fully understand the range of network address
+			let x = [1..(2^(32 - mask))-2]
 			let y = fmap (htonl. (+host_)) x
 	--		print (here, sock)
 			forM_ y $ \h -> do
---				trace $ show (here, h)
 				sendPing sock h
 --				threadDelay 1000
 			trace $ show (here, "Done", showHex host "", length x)
@@ -87,12 +87,12 @@ dump put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets r
 --		(show up)
 	put $ "\tnets:"
 	forM_ (M.toList nets) $ \(ip, IfNet mask) -> do
-		put $ "\t" ++ show ip ++ "/" ++ show mask
+		put $ "\t\t" ++ show ip ++ "/" ++ show mask
 	put $ "\tremotes:"
 	forM_ (M.toList remotes) $ \(mac, ips) -> do
-		put $ "\t" ++ show mac
+		put $ "\t\t" ++ show mac
 		forM_ ips $ \(Remote ip) -> do
-			put $ "\t\t" ++ show ip
+			put $ "\t\t\t" ++ show ip
 
 --------------------------------------------------------------------------------
 
@@ -111,6 +111,10 @@ recvOne_ note trace sock
 
 main :: IO ()
 main = do
+
+	args <- getArgs
+	let active = take 1 args == ["--active"]
+
 --http://elixir.free-electrons.com/linux/v4.15-rc5/source/include/uapi/linux/netlink.h
 	sock <- makeSocketGeneric eNETLINK_ROUTE
 
@@ -149,7 +153,8 @@ main = do
 				modifyTVar subnets $ filter (==(ip, mask))
 --			error here --TODO remove from ping thread thread rotation
 
-	forkIO $
+--XXX "ping mode" is enable by "--active"
+	when active $ void $ forkIO $
 		withPingSocket Nothing $ \sock -> do
 
 			forkIO $ forever $ do
@@ -189,9 +194,6 @@ main = do
 #else
 	let ping = noPing
 #endif
---	query sock queryGetLink >>= mapM_ (handleNews''' trace noPing nm)
---	query sock queryGetAddr >>= mapM_ (handleNews''' trace noPing nm)
---	query sock queryGetNeigh >>= mapM_ (handleNews''' trace noPing nm)
 
 	qtrace_ traceQ (here, "--------------------------------------------------------------------------------")
 
@@ -249,10 +251,9 @@ main = do
 			readTVar nm
 --			print (here, updated)
 #if 1
-		qputstr ">>>"
 		clearScreen
+		qputstr "--------------------------------------------------------------------------------"
 		dump qputstr updated
-		qputstr "<<<"
 #endif
 		return ()
 
