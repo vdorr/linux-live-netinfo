@@ -123,13 +123,13 @@ main = do
 #if 1
 	joinMulticastGroup sock eRTNLGRP_LINK
 	joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
---	joinMulticastGroup sock eRTNLGRP_NEIGH
+	joinMulticastGroup sock eRTNLGRP_NEIGH
 #endif
 	traceQ <- newTQueueIO
 	forkIO ( forever $ atomically (readTQueue traceQ) >>= putStrLn )
 
 	let qputstr x = (atomically $ writeTQueue traceQ x) ::  (IO ())
-	let qtrace = qtrace_ traceQ --(qputstr . show) ::  (Show a => a -> IO ())
+--	let qtrace = qtrace_ traceQ --(qputstr . show) ::  (Show a => a -> IO ())
 
 	pingPending <- newTVarIO 0
 	subnets <- newTVarIO []
@@ -174,11 +174,11 @@ main = do
 			forever $ do
 				(ip, netmask) <- atomically $ readTQueue pingQ
 				atomically $ modifyTVar pingPending (+1)
-				qtrace (here, "!!!!!!!!!! ONE !!!!!!!!!!!", ip, netmask)
+--				qtrace (here, "!!!!!!!!!! ONE !!!!!!!!!!!", ip, netmask)
 				atomically $ readTVar pingPending >>= (guard . ( <= 8))
-				qtrace (here, "!!!!!!!!!!! TWO !!!!!!!!!!", ip, netmask)
+--				qtrace (here, "!!!!!!!!!!! TWO !!!!!!!!!!", ip, netmask)
 				newSubnet''' qputstr sock ip netmask
-				qtrace (here, "!!!!!!!!!!! THREE !!!!!!!!!!", ip, netmask)
+--				qtrace (here, "!!!!!!!!!!! THREE !!!!!!!!!!", ip, netmask)
 
 	let traceX = qputstr --putStrLn
 #if 0
