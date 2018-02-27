@@ -24,8 +24,8 @@ import Control.Exception
 
 import Data.Serialize
 
-import NetMap
-import Ping
+import System.Linux.NetInfo
+import System.Linux.Ping
 
 
 --https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
