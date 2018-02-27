@@ -108,9 +108,9 @@ data Remote = Remote IP
 
 --------------------------------------------------------------------------------
 
-data Event'
+data Event
 	= AddSubnet Word32 IP IfNet -- ^ New IP address added on interface identified by index
-	| DelSubnet' Word32 IP
+	| DelSubnet Word32 IP IfNet
 
 	| AddIface Word32 String LinkAddress Bool -- ^ index, name, mac, is up
 	| DelIface Word32
@@ -126,7 +126,7 @@ data Event'
 translateNews :: Applicative a =>
 		(String -> a ())
                       -> Packet Message
-                      -> a (Maybe Event')
+                      -> a (Maybe Event)
 translateNews trace (err@ErrorMsg {})
 	= trace (show (here, err))
 	*> pure (Just $ ErrorEvent $ show err)
@@ -148,7 +148,7 @@ translateNews trace (Packet Header{..} NAddrMsg {..} attr)
 		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| messageType == eRTM_DELADDR, Just ip <- getIPAttr attr
 		= trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> pure (Just $ DelSubnet' addrInterfaceIndex ip)
+		*> pure (Just $ DelSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| otherwise
 		= trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
 		*> pure Nothing
@@ -169,7 +169,7 @@ translateNews trace (Packet Header{..} NNeighMsg{..} attr)
 
 --------------------------------------------------------------------------------
 
-mergeNews :: M.Map Word32 Iface -> Event' -> M.Map Word32 Iface
+mergeNews :: M.Map Word32 Iface -> Event -> M.Map Word32 Iface
 mergeNews nm (ErrorEvent _) = nm
 mergeNews nm (AddIface interfaceIndex name mac isUp)
 	= M.insert interfaceIndex
@@ -183,7 +183,7 @@ mergeNews nm (AddSubnet addrInterfaceIndex ip ifNet)
 			M.insert ip ifNet $ ifaceNets i })
 		addrInterfaceIndex
 		nm
-mergeNews nm (DelSubnet' addrInterfaceIndex ip)
+mergeNews nm (DelSubnet addrInterfaceIndex ip _)
 	= M.adjust
 		(\i -> i { ifaceNets =
 			M.delete ip $ ifaceNets i })
@@ -211,11 +211,6 @@ mergeNews nm (DelNeighbour neighIfindex mac remote)
 emptyNMap :: IO (TVar IfMap)
 emptyNMap = newTVarIO M.empty
 
-data Event
-	= NewSubnet IP Word8
-	| DelSubnet IP Word8
-	deriving (Show, Eq, Ord)
-
 handleNews'' :: Applicative m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
 handleNews'' trace _ _ err@ErrorMsg {} = trace (show (here, err)) *> pure Nothing
 handleNews'' _ _  _ DoneMsg {} = pure Nothing
@@ -234,7 +229,7 @@ handleNews'' trace _ nm (Packet Header{..} NLinkMsg{..} attr) --for flags see ma
 handleNews'' trace newSubnet nm (Packet Header{..} NAddrMsg {..} attr)
 	| messageType == eRTM_NEWADDR, Just ip <- getIPAttr attr =
 		trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> newSubnet (NewSubnet ip addrMaskLength)
+		*> newSubnet (AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 		*> pure (Just $ M.adjust
 			(\i -> i { ifaceNets =
 				M.insert ip (IfNet addrMaskLength) $ ifaceNets i })

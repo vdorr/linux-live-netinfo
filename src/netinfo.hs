@@ -136,22 +136,24 @@ main = do
 	
 	pingQ <- newTQueueIO
 	let newSubnet e = case e of
-		NewSubnet ip mask -> newSubnet'' pingQ ip mask
-		DelSubnet ip mask -> error here --TODO remove from ping thread thread rotation
+		AddSubnet _ ip (IfNet mask) -> newSubnet'' pingQ ip mask
+		DelSubnet _ ip (IfNet mask) -> error here --TODO remove from ping thread thread rotation
+		_ -> return ()
 
 
 	let newSubnet2 e = case e of
-		NewSubnet ip mask -> do
+		AddSubnet _ ip (IfNet mask) -> do
 			atomically $ do
 --				s <- readTVar subnets
 				modifyTVar subnets $ let x = (ip, mask) in (x:) . filter (==x)
 --				error here
-		DelSubnet ip mask -> do
+		DelSubnet _ ip (IfNet mask) -> do
 			atomically $ do
 --				s <- readTVar subnets
 --				writeTVar subnets $
 				modifyTVar subnets $ filter (==(ip, mask))
 --			error here --TODO remove from ping thread thread rotation
+		_ -> return ()
 
 --XXX "ping mode" is enable by "--active"
 	when active $ void $ forkIO $
