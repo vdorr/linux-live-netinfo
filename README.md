@@ -2,8 +2,8 @@ linux-live-netinfo library and program
 
 Provides real time updates on state of network neighbourhood (NICs, IPs, ARP table) of Linux system.
 
-This is work in progress.
+This is work in progress and quite experimental.
 
-Depends on yet unreleased version of netlink library.
+Depends on yet unreleased version of netlink library (available from github).
 
 
