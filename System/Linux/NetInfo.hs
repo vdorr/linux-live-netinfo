@@ -169,7 +169,7 @@ translateNews trace (Packet Header{..} NNeighMsg{..} attr)
 
 --------------------------------------------------------------------------------
 
-mergeNews :: M.Map Word32 Iface -> Event -> M.Map Word32 Iface
+mergeNews :: IfMap -> Event -> IfMap
 mergeNews nm (ErrorEvent _) = nm
 mergeNews nm (AddIface interfaceIndex name mac isUp)
 	= M.insert interfaceIndex
@@ -211,7 +211,16 @@ mergeNews nm (DelNeighbour neighIfindex mac remote)
 emptyNMap :: IO (TVar IfMap)
 emptyNMap = newTVarIO M.empty
 
-handleNews'' :: Applicative m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
+handleNews'' :: Monad m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
+handleNews'' trace newSubnet nm msg
+	= translateNews trace msg
+	>>= maybe (return Nothing) handleEvent
+	where
+	handleEvent event@AddSubnet {}
+		= newSubnet event
+		*> pure (Just $ mergeNews nm event)
+	handleEvent event = pure $ Just $ mergeNews nm event
+#if 0
 handleNews'' trace _ _ err@ErrorMsg {} = trace (show (here, err)) *> pure Nothing
 handleNews'' _ _  _ DoneMsg {} = pure Nothing
 handleNews'' trace _ nm (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
@@ -276,6 +285,8 @@ handleNews'' trace _ nm (Packet Header{..} NNeighMsg{..} attr)
 --	where
 --	trace = trace' . show
 --	getIfaceAddr = getLinkAddress --attr = decodeMAC <$> M.lookup eIFLA_ADDRESS attr
+#endif
+
 getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
 --	getLLAddr attr = decodeMAC <$> getAttr eNDA_LLADDR attr
 --	getDstAddr attr = decodeIP <$> getAttr eNDA_DST attr
@@ -291,7 +302,7 @@ getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA
 handleNews' :: TVar IfMap -> Packet Message -> IO Bool
 handleNews' = handleNews''' (const (pure ())) newSubnet
 	where
-	newSubnet :: Event -> IO () --this is ping all in subnet
+	newSubnet :: Event -> IO () --this is ping-all-in-subnet
 	newSubnet _ = return ()
 
 #if 0

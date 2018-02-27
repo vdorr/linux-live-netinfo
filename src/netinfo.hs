@@ -15,7 +15,7 @@ import Data.Word
 
 import Network.Socket hiding (sendTo, recvFrom)
 import Network.Socket.ByteString ( recvFrom)
-import qualified Data.ByteString as B
+--import qualified Data.ByteString as B
 
 import Numeric (showHex)
 import Data.Bits
@@ -96,13 +96,19 @@ dump put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets r
 
 --------------------------------------------------------------------------------
 
+#if 0
+noPing :: a -> b -> IO ()
+noPing = \_ _ -> pure ()
+#endif
+
+noTrace :: String -> IO ()
+noTrace = const $ return ()
+
 newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
 newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
 
 qtrace_ :: Show a => TQueue String -> a -> IO ()
 qtrace_ q x = atomically $ writeTQueue q $ show x
-
-loop s f = f s >>= f
 
 recvOne_ note trace sock
 	= catch (recvOne sock) $ \e -> do
@@ -140,7 +146,7 @@ main = do
 		DelSubnet _ ip (IfNet mask) -> error here --TODO remove from ping thread thread rotation
 		_ -> return ()
 
-
+#if 0
 	let newSubnet2 e = case e of
 		AddSubnet _ ip (IfNet mask) -> do
 			atomically $ do
@@ -154,6 +160,7 @@ main = do
 				modifyTVar subnets $ filter (==(ip, mask))
 --			error here --TODO remove from ping thread thread rotation
 		_ -> return ()
+#endif
 
 --XXX "ping mode" is enable by "--active"
 	when active $ void $ forkIO $
@@ -262,12 +269,5 @@ main = do
 	forever getLine
 
 	closeSocket sock
-
-	where
-	noPing :: a -> b -> IO ()
-	noPing = \_ _ -> pure ()
-
-	noTrace :: String -> IO ()
-	noTrace = const $ return ()
 
 
