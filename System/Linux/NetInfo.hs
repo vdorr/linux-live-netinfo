@@ -123,7 +123,6 @@ data Event'
 	deriving (Show, Eq, Ord)
 
 
---translateNews :: Applicative m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
 translateNews :: Applicative a =>
 		(String -> a ())
                       -> Packet Message
