@@ -5,10 +5,17 @@
 module System.Linux.NetInfo
 	( IfMap, Iface(..), IfNet(..), IP, Remote(..)
 	, Event(..)
+#if 0
+	, NetInfoSocket
+	, startNetInfo
+	, stopNetInfo
+	, queryNetInfo
+	, netInfoVarSTM
+	, netInfoEventsSTM
+#endif
 	, translateNews, mergeNews
 	, emptyNMap
 	, queryGetLink, queryGetAddr, queryGetNeigh
---	, handleNews', handleNews''
 	, collectNews
 	, tapNetlink
 	, dumpIfMap
@@ -30,18 +37,41 @@ import Control.Monad
 
 --------------------------------------------------------------------------------
 
+-- | Handle to netlink socket
+data NetInfoSocket = NIS
+	{ nisSock :: NetlinkSocket
+	, nisSwitch :: TVar Bool
+	, nisNetInfo :: TVar IfMap
+	, nisEvents :: TChan Event
+	}
+
+-- | Start watching network subsystem. It is good idea to use it along with 'bracket' and 'stopNetInfo'.
+startNetInfo :: IO NetInfoSocket
+startNetInfo = undefined
+--newBroadcastTChan
+
+-- | Stop watching
+stopNetInfo :: NetInfoSocket -> IO ()
+stopNetInfo sock = undefined
+
+-- | Returns latest snapshot
+queryNetInfo :: NetInfoSocket -> IO IfMap
+queryNetInfo sock = undefined
+
+-- | Returns STM variable with state of network neighborhood
+netInfoVarSTM :: NetInfoSocket -> TVar IfMap
+netInfoVarSTM = undefined
+
+-- | Returns STM channels providing stream of 'Event'
+netInfoEventsSTM :: NetInfoSocket -> IO (TQueue IfMap)
+netInfoEventsSTM = undefined
+
+--------------------------------------------------------------------------------
+
 type LinkAddress = (Word8, Word8, Word8, Word8, Word8, Word8)
 
 decodeIP :: ByteString -> [Word8]
 decodeIP s = map (fromIntegral . ord) $ unpack s
-
-#if 0
-decodeMAC :: ByteString -> LinkAddress
-decodeMAC = tuplify . map (fromIntegral . ord) . unpack
-	where 
-	tuplify [a,b,c,d,e,f] = (a,b,c,d,e,f)
-	tuplify _ = error "Bad encoded MAC"
-#endif
 
 --------------------------------------------------------------------------------
 
@@ -100,20 +130,25 @@ queryGetNeigh = let
 
 --------------------------------------------------------------------------------
 
+-- | Map from interface index to interface state
 type IfMap = M.Map Word32 Iface -- iface index
 
+-- | State of interface
 data Iface = Iface
-	{ ifaceName :: String
-	, ifaceAddr :: LinkAddress
-	, ifaceNets :: M.Map IP IfNet
-	, ifaceRemotes :: M.Map LinkAddress (S.Set Remote)
-	, ifaceUp :: Bool
+	{ ifaceName :: String -- ^ name
+	, ifaceAddr :: LinkAddress -- ^ MAC address
+	, ifaceNets :: M.Map IP IfNet -- ^ map from IP addresses to subnet size
+	, ifaceRemotes :: M.Map LinkAddress (S.Set Remote) -- ^ map from MAC of remote device to set of remote IPs
+	, ifaceUp :: Bool -- ^ interface is Up
 --	, ifFlags :: [Int]
 	} deriving (Show, Eq, Ord)
 
+-- | Netmask
 data IfNet = IfNet { ifnLength :: Word8 } --netmask
 	deriving (Show, Eq, Ord)
 
+-- | IP, 4 or 6
+--maybe i should use the one from Network
 type IP = [Word8]
 
 data Remote = Remote IP
@@ -233,73 +268,8 @@ handleNews'' trace newSubnet nm msg
 		= newSubnet event
 		*> pure (Just $ mergeNews nm event)
 	handleEvent event = pure $ Just $ mergeNews nm event
-#if 0
-handleNews'' trace _ _ err@ErrorMsg {} = trace (show (here, err)) *> pure Nothing
-handleNews'' _ _  _ DoneMsg {} = pure Nothing
-handleNews'' trace _ nm (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
-	| messageType == eRTM_NEWLINK, Just name <- getLinkName attr, Just mac <- getLinkAddress attr =
-		trace (show (here, "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
-		*> pure (Just $ M.insert interfaceIndex
-			(Iface name mac M.empty M.empty (interfaceFlags .&. fIFF_UP /= 0))
-			nm)
-	| messageType == eRTM_DELLINK =
-		trace (show (here, "remove iface", interfaceIndex, getLinkName attr))
-		*> pure (Just $ M.delete interfaceIndex nm)
-	| otherwise =
-		trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
-		*> pure Nothing
-handleNews'' trace newSubnet nm (Packet Header{..} NAddrMsg {..} attr)
-	| messageType == eRTM_NEWADDR, Just ip <- getIPAttr attr =
-		trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> newSubnet (AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
-		*> pure (Just $ M.adjust
-			(\i -> i { ifaceNets =
-				M.insert ip (IfNet addrMaskLength) $ ifaceNets i })
-			addrInterfaceIndex
-			nm)
-	| messageType == eRTM_DELADDR, Just ip <- getIPAttr attr =
-		trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
-		*> pure (Just $ M.adjust
-			(\i -> i { ifaceNets =
-				M.delete ip $ ifaceNets i })
-			addrInterfaceIndex
-			nm)
-	| otherwise =
-		trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
-		*> pure Nothing
-handleNews'' trace _ nm (Packet Header{..} NNeighMsg{..} attr)
-	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
---		, testBit neighState fNUD_REACHABLE
-		=
-		
-		trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
-		*> pure (Just $ M.adjust
-			(\i -> i { ifaceRemotes =
-				M.insertWith S.union mac (S.singleton $ Remote ip) $ ifaceRemotes i })
-			(fromIntegral neighIfindex)
-			nm)
-	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr =
-		trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
-		*> pure (Just $ M.adjust
-			(\i -> i { ifaceRemotes =
-				M.alter
-					(\remotes -> case fmap (S.delete (Remote ip)) remotes of
-						Just s' | not $ S.null s' -> Just s'
-						_ -> Nothing )
-					mac $ ifaceRemotes i })
-			(fromIntegral neighIfindex)
-			nm)
-	| otherwise =
-		trace (show (here, showMessageType messageType,
-			getFlags neighState,
-			getLLAddr attr,
-			fmap (fmap ord.unpack) (getDstAddr attr) )) --should not happen
-		*> pure Nothing
---	where
---	trace = trace' . show
---	getIfaceAddr = getLinkAddress --attr = decodeMAC <$> M.lookup eIFLA_ADDRESS attr
-#endif
 
+getIPAttr :: Attributes -> Maybe [Word8]
 getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
 --	getLLAddr attr = decodeMAC <$> getAttr eNDA_LLADDR attr
 --	getDstAddr attr = decodeIP <$> getAttr eNDA_DST attr
@@ -309,28 +279,6 @@ getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA
 		| addrFamily == eAF_INET = show . decodeIPv4
 		| addrFamily == eAF_INET6 = show . decodeIPv6
 		| otherwise = error here
-#endif
-
-#if 0
-handleNews' :: TVar IfMap -> Packet Message -> IO Bool
-handleNews' = handleNews''' (const (pure ())) newSubnet
-	where
-	newSubnet :: Event -> IO () --this is ping-all-in-subnet
-	newSubnet _ = return ()
-#endif
-
-#if 0
-handleNews' nmVar msg = do
-	nm <- atomically $ readTVar nmVar
-	nm' <- handleNews'' putStrLn newSubnet nm msg
-	case nm' of
-		Just nm'' ->
-			atomically $ writeTVar nmVar nm''
-			*> pure True
-		_ -> pure False
-	where
-	newSubnet :: IP -> Word8 -> IO () --this is ping all in subnet
-	newSubnet ip mask = return ()
 #endif
 
 collectNews
@@ -351,15 +299,16 @@ collectNews trace newSubnet nmVar msg = do
 --------------------------------------------------------------------------------
 
 tapNetlink :: IO NetlinkSocket
-tapNetlink = do
-	sock <- makeSocketGeneric eNETLINK_ROUTE
-
+tapNetlink
+	= makeSocketGeneric eNETLINK_ROUTE
+	>>= \sock ->
 #if 1
-	joinMulticastGroup sock eRTNLGRP_LINK
-	joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
-	joinMulticastGroup sock eRTNLGRP_NEIGH
+		joinMulticastGroup sock eRTNLGRP_LINK
+		*> joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
+		*> joinMulticastGroup sock eRTNLGRP_NEIGH
+		*>
 #endif
-	return sock
+		pure sock
 
 --------------------------------------------------------------------------------
 
