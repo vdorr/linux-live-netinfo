@@ -186,7 +186,7 @@ queryGetNeigh = let
 		, messageSeqNum = 1
 		, messagePID = 0
 		}
--- #define NUD_REACHABLE	0x02
+--define NUD_REACHABLE	0x02
 	ndm = NNeighMsg
 		{ neighFamily = eAF_INET
 		, neighIfindex = 0
