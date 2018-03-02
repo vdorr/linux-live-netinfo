@@ -4,6 +4,4 @@ Provides real time updates on state of network neighbourhood (NICs, IPs, ARP tab
 
 This is work in progress and quite experimental.
 
-Depends on yet unreleased version of netlink library (available from github).
-
 
