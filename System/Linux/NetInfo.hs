@@ -5,15 +5,18 @@
 module System.Linux.NetInfo
 	( IfMap, Iface(..), IfNet(..), IP, Remote(..)
 	, Event(..)
-#if 0
+#if 1
 	, NetInfoSocket
 	, startNetInfo
 	, stopNetInfo
+	, withNetInfo
 	, queryNetInfo
 	, netInfoVarSTM
 	, netInfoEventsSTM
+	, newsLoop
 #endif
-	, translateNews, mergeNews
+	, translateNews, translateNewsA
+	, mergeNews
 	, emptyNMap
 	, queryGetLink, queryGetAddr, queryGetNeigh
 	, collectNews
@@ -28,6 +31,7 @@ import Data.Word
 import qualified Data.Map as M
 --import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Concurrent
 import qualified Data.Set as S
 import Data.ByteString.Char8 (ByteString, unpack) --append, init, pack, 
 import Data.Bits
@@ -35,40 +39,95 @@ import Data.Maybe
 import Data.Char (ord)
 import Control.Monad
 
+import Control.Exception (bracket, catch, IOException)
+import Data.Functor.Identity
+
 --------------------------------------------------------------------------------
 
 -- | Handle to netlink socket
 data NetInfoSocket = NIS
-	{ nisSock :: NetlinkSocket
-	, nisSwitch :: TVar Bool
-	, nisNetInfo :: TVar IfMap
+	{
+-- nisSock :: NetlinkSocket ,
+--	  nisSwitch :: TVar Bool	, 
+	  nisNetInfo :: TVar IfMap
 	, nisEvents :: TChan Event
+	, nisThread :: ThreadId
+--	, nisDone :: TMVar ()
 	}
 
--- | Start watching network subsystem. It is good idea to use it along with 'bracket' and 'stopNetInfo'.
+-- | Start watching network subsystem
 startNetInfo :: IO NetInfoSocket
-startNetInfo = undefined
---newBroadcastTChan
+startNetInfo = do
+--	sock <- tapNetlink
+--	switch <- newTVarIO True
+	nm <- emptyNMap
+	events <- newBroadcastTChanIO
+--	done <- newEmptyTMVarIO
+
+	thread <- forkIO $
+--FIXME do initial query, structured so that no information is lost
+--join link mcast, query link, join addr mcast, query ...
+--leaveMulticast heuristic
+		bracket tapNetlink closeSocket $ \sock ->
+			forever $ receiveNews sock >>= \es ->
+				forM_ es $ \e -> atomically $
+					modifyTVar' nm (flip mergeNews e)
+					>> writeTChan events e
+	return $ NIS nm events thread
+
+withNetInfo :: (NetInfoSocket -> IO a) -> IO a
+withNetInfo = bracket startNetInfo stopNetInfo
 
 -- | Stop watching
 stopNetInfo :: NetInfoSocket -> IO ()
-stopNetInfo sock = undefined
+stopNetInfo = killThread . nisThread
+--or	*> atomically $ takeMVar ()
 
 -- | Returns latest snapshot
 queryNetInfo :: NetInfoSocket -> IO IfMap
-queryNetInfo sock = undefined
+queryNetInfo = readTVarIO . nisNetInfo
 
 -- | Returns STM variable with state of network neighborhood
 netInfoVarSTM :: NetInfoSocket -> TVar IfMap
-netInfoVarSTM = undefined
+netInfoVarSTM = nisNetInfo
 
 -- | Returns STM channels providing stream of 'Event'
-netInfoEventsSTM :: NetInfoSocket -> IO (TQueue IfMap)
-netInfoEventsSTM = undefined
+netInfoEventsSTM :: NetInfoSocket -> IO (TChan Event)
+netInfoEventsSTM = (atomically . cloneTChan) . nisEvents
 
 --------------------------------------------------------------------------------
 
-type LinkAddress = (Word8, Word8, Word8, Word8, Word8, Word8)
+-- | event is Nothing on first call and when NetInfo has to resort to polling
+newsLoop :: NetInfoSocket -> ((Maybe Event, IfMap) -> IO (Maybe a)) -> IO a
+newsLoop nis callback
+	= atomically (dupTChan $ nisEvents nis)
+	>>= \chan -> atomically readNM
+	>>= \nm -> callback (Nothing, nm)
+	>>= maybe (loop chan) return
+	where
+	readNM = readTVar (nisNetInfo nis)
+	loop eventChan
+		= atomically (
+			(,) <$> Just <$> readTChan eventChan
+			<*> readNM)
+		>>= callback
+		>>= maybe (loop eventChan) (return)
+
+receiveNews :: NetlinkSocket -> IO [Event]
+receiveNews sock = do
+	news <- (translateNews <$>) <$> recvOne sock
+	case catMaybes news of
+		[] -> receiveNews sock
+		news' -> return news'
+
+#if 0
+recvOne_ note trace sock
+	= catch (recvOne sock) $ \e -> do
+		trace $ show (here, "RECV FAILURE", note, (e :: IOException))
+		return []
+#endif
+
+--------------------------------------------------------------------------------
 
 decodeIP :: ByteString -> [Word8]
 decodeIP s = map (fromIntegral . ord) $ unpack s
@@ -130,6 +189,9 @@ queryGetNeigh = let
 
 --------------------------------------------------------------------------------
 
+-- | MAC address
+type LinkAddress = (Word8, Word8, Word8, Word8, Word8, Word8)
+
 -- | Map from interface index to interface state
 type IfMap = M.Map Word32 Iface -- iface index
 
@@ -147,8 +209,8 @@ data Iface = Iface
 data IfNet = IfNet { ifnLength :: Word8 } --netmask
 	deriving (Show, Eq, Ord)
 
+--FIXME maybe i should use the one from Network
 -- | IP, 4 or 6
---maybe i should use the one from Network
 type IP = [Word8]
 
 data Remote = Remote IP
@@ -171,16 +233,19 @@ data Event
 	deriving (Show, Eq, Ord)
 
 
-translateNews :: Applicative a =>
+translateNews :: Packet Message -> Maybe Event
+translateNews = runIdentity . translateNewsA (const (pure ()))
+
+translateNewsA :: Applicative a =>
 		(String -> a ())
                       -> Packet Message
                       -> a (Maybe Event)
-translateNews trace (err@ErrorMsg {})
+translateNewsA trace (err@ErrorMsg {})
 	= trace (show (here, err))
 	*> pure (Just $ ErrorEvent $ show err)
-translateNews _ (DoneMsg {})
+translateNewsA _ (DoneMsg {})
 	= pure Nothing
-translateNews trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
+translateNewsA trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
 	| messageType == eRTM_NEWLINK, Just name <- getLinkName attr, Just mac <- getLinkAddress attr
 		= trace (show (here, "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
 		*> pure (Just $ AddIface interfaceIndex name mac (interfaceFlags .&. fIFF_UP /= 0))
@@ -190,7 +255,7 @@ translateNews trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man ne
 	| otherwise
 		= trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
 		*> pure Nothing
-translateNews trace (Packet Header{..} NAddrMsg {..} attr)
+translateNewsA trace (Packet Header{..} NAddrMsg {..} attr)
 	| messageType == eRTM_NEWADDR, Just ip <- getIPAttr attr
 		= trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
@@ -200,7 +265,7 @@ translateNews trace (Packet Header{..} NAddrMsg {..} attr)
 	| otherwise
 		= trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
 		*> pure Nothing
-translateNews trace (Packet Header{..} NNeighMsg{..} attr)
+translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 --		, testBit neighState fNUD_REACHABLE
 		= trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
@@ -261,7 +326,7 @@ emptyNMap = newTVarIO M.empty
 
 handleNews'' :: Monad m => (String -> m ()) -> (Event -> m ()) -> IfMap -> Packet Message -> m (Maybe IfMap)
 handleNews'' trace newSubnet nm msg
-	= translateNews trace msg
+	= translateNewsA trace msg
 	>>= maybe (return Nothing) handleEvent
 	where
 	handleEvent event@AddSubnet {}
