@@ -32,7 +32,7 @@ import System.Linux.Ping
 
 --------------------------------------------------------------------------------
 
-#if 1
+#if 0
 --FIXME FIXME check if subnet is not already being scanned
 newSubnet''' :: (String -> IO ()) -> Socket -> IP -> Word8 -> IO () --ping all IPs in subnet
 newSubnet''' _ _ ip@[127,0,0,d] mask = return ()
@@ -72,6 +72,7 @@ noPing :: a -> b -> IO ()
 noPing = \_ _ -> pure ()
 #endif
 
+#if 0
 noTrace :: String -> IO ()
 noTrace = const $ return ()
 
@@ -85,6 +86,7 @@ recvOne_ note trace sock
 	= catch (recvOne sock) $ \e -> do
 		trace $ show (here, "RECV FAILURE", note, (e :: IOException))
 		return []
+#endif
 
 --------------------------------------------------------------------------------
 
@@ -92,6 +94,7 @@ recvOne_ note trace sock
 fping -ag 192.168.0.0/24
 -}
 
+#if 0
 main :: IO ()
 main = do
 
@@ -226,5 +229,22 @@ main = do
 	forever getLine
 
 	closeSocket sock
+#else
+
+
+main :: IO ()
+main = do
+#if 0
+	args <- getArgs
+	let active = take 1 args == ["--active"]
+#endif
+
+	withNetInfo $
+		flip newsLoop $ \(event, ifMap) -> do
+			clearScreen
+			putStrLn "--------------------------------------------------------------------------------"
+			dumpIfMap putStrLn ifMap
+			return Nothing
+#endif
 
 

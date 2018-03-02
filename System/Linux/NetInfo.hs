@@ -58,21 +58,28 @@ data NetInfoSocket = NIS
 -- | Start watching network subsystem
 startNetInfo :: IO NetInfoSocket
 startNetInfo = do
---	sock <- tapNetlink
---	switch <- newTVarIO True
 	nm <- emptyNMap
 	events <- newBroadcastTChanIO
---	done <- newEmptyTMVarIO
+
+	let updateNM = modifyTVar' nm . flip mergeNews
+	let bulkUpdateNM = atomically . mapM_ updateNM
+
+	initialized <- newEmptyTMVarIO
 
 	thread <- forkIO $
 --FIXME do initial query, structured so that no information is lost
 --join link mcast, query link, join addr mcast, query ...
 --leaveMulticast heuristic
 		bracket tapNetlink closeSocket $ \sock ->
-			forever $ receiveNews sock >>= \es ->
+			askForNews queryGetLink sock >>= bulkUpdateNM
+			>> askForNews queryGetAddr sock >>= bulkUpdateNM
+			>> askForNews queryGetNeigh sock >>= bulkUpdateNM
+			>> atomically (putTMVar initialized ())
+			>> forever (receiveNews sock >>= \es ->
 				forM_ es $ \e -> atomically $
-					modifyTVar' nm (flip mergeNews e)
-					>> writeTChan events e
+					updateNM e
+					>> writeTChan events e)
+	atomically $ takeTMVar initialized
 	return $ NIS nm events thread
 
 withNetInfo :: (NetInfoSocket -> IO a) -> IO a
@@ -81,7 +88,6 @@ withNetInfo = bracket startNetInfo stopNetInfo
 -- | Stop watching
 stopNetInfo :: NetInfoSocket -> IO ()
 stopNetInfo = killThread . nisThread
---or	*> atomically $ takeMVar ()
 
 -- | Returns latest snapshot
 queryNetInfo :: NetInfoSocket -> IO IfMap
@@ -102,7 +108,7 @@ newsLoop :: NetInfoSocket -> ((Maybe Event, IfMap) -> IO (Maybe a)) -> IO a
 newsLoop nis callback
 	= atomically (dupTChan $ nisEvents nis)
 	>>= \chan -> atomically readNM
-	>>= \nm -> callback (Nothing, nm)
+	>>= \nm -> print here >> callback (Nothing, nm)
 	>>= maybe (loop chan) return
 	where
 	readNM = readTVar (nisNetInfo nis)
@@ -112,6 +118,9 @@ newsLoop nis callback
 			<*> readNM)
 		>>= callback
 		>>= maybe (loop eventChan) (return)
+
+askForNews :: Packet Message -> NetlinkSocket -> IO [Event]
+askForNews q sock = catMaybes <$> (translateNews <$>) <$> query sock q
 
 receiveNews :: NetlinkSocket -> IO [Event]
 receiveNews sock = do
