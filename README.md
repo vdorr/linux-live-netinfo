@@ -1,4 +1,4 @@
-https://travis-ci.org/vdorr/linux-live-netinfo.svg?branch=master
+![Build Status](https://travis-ci.org/vdorr/linux-live-netinfo.svg?branch=master)
 
 linux-live-netinfo library and program
 
