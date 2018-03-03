@@ -43,6 +43,10 @@ import Control.Monad
 import Control.Exception (bracket, catch, IOException)
 import Data.Functor.Identity
 
+--import Network.Socket
+import Numeric (showHex)
+import Data.List
+
 --------------------------------------------------------------------------------
 
 -- | Handle to netlink socket
@@ -204,7 +208,15 @@ queryGetNeigh = let
 --------------------------------------------------------------------------------
 
 -- | MAC address
-type LinkAddress = (Word8, Word8, Word8, Word8, Word8, Word8)
+newtype LinkAddress = LinkAddress (Word8, Word8, Word8, Word8, Word8, Word8)
+	deriving (Ord, Eq)
+
+instance Show LinkAddress where
+	show (LinkAddress (a, b, c, d, e, f))
+		= intercalate ":" $ fmap s [a, b, c, d, e, f]
+		where
+			s x = pad '0' 2 (showHex x "")
+			pad c l = reverse . take l . (flip (++) (replicate l c)) . reverse
 
 -- | Map from interface index to interface state
 type IfMap = M.Map Word32 Iface -- iface index
@@ -223,9 +235,17 @@ data Iface = Iface
 data IfNet = IfNet { ifnLength :: Word8 } --netmask
 	deriving (Show, Eq, Ord)
 
---FIXME maybe i should use the one from Network
 -- | IP, 4 or 6
 type IP = [Word8]
+
+data IP'
+	= IPv4 (Word8, Word8, Word8, Word8)
+	| IPv6 (Word32, Word32, Word32, Word32)
+	deriving (Eq, Ord)
+
+instance Show IP' where
+	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
+	show (IPv6 (a, b, c, d)) = "this is ipv6:" ++ show (a, b, c, d) --FIXME FIXME
 
 data Remote = Remote IP
 	deriving (Show, Eq, Ord)
@@ -262,7 +282,7 @@ translateNewsA _ (DoneMsg {})
 translateNewsA trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
 	| messageType == eRTM_NEWLINK, Just name <- getLinkName attr, Just mac <- getLinkAddress attr
 		= trace (show (here, "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
-		*> pure (Just $ AddIface interfaceIndex name mac (interfaceFlags .&. fIFF_UP /= 0))
+		*> pure (Just $ AddIface interfaceIndex name (LinkAddress mac) (interfaceFlags .&. fIFF_UP /= 0))
 	| messageType == eRTM_DELLINK
 		= trace (show (here, "remove iface", interfaceIndex, getLinkName attr))
 		*> pure (Just $ DelIface interfaceIndex)
@@ -283,10 +303,10 @@ translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 --		, testBit neighState fNUD_REACHABLE
 		= trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
-		*> pure (Just $ AddNeigbour (fromIntegral neighIfindex) mac $ Remote ip) --FIXME uneasy feeling about fromIntegral
+		*> pure (Just $ AddNeigbour (fromIntegral neighIfindex) (LinkAddress mac) $ Remote ip) --FIXME uneasy feeling about fromIntegral
 	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
 		= trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
-		*> pure (Just $ DelNeighbour (fromIntegral neighIfindex) mac (Remote ip))
+		*> pure (Just $ DelNeighbour (fromIntegral neighIfindex) (LinkAddress mac) (Remote ip))
 	| otherwise
 		= trace (show (here, showMessageType messageType,
 			getFlags neighState,
