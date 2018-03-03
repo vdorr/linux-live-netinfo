@@ -14,6 +14,7 @@ module System.Linux.NetInfo
 	, netInfoVarSTM
 	, netInfoEventsSTM
 	, newsLoop
+	, getNetInfo
 #endif
 	, translateNews, translateNewsA
 	, mergeNews
@@ -100,6 +101,10 @@ netInfoVarSTM = nisNetInfo
 -- | Returns STM channels providing stream of 'Event'
 netInfoEventsSTM :: NetInfoSocket -> IO (TChan Event)
 netInfoEventsSTM = (atomically . cloneTChan) . nisEvents
+
+-- | Convenience function that returns snapshot of network informations
+getNetInfo :: IO IfMap
+getNetInfo = withNetInfo queryNetInfo
 
 --------------------------------------------------------------------------------
 
