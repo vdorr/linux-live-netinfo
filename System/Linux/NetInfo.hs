@@ -115,7 +115,10 @@ getNetInfo = withNetInfo queryNetInfo
 --------------------------------------------------------------------------------
 
 -- | event is Nothing on first call and when NetInfo has to resort to polling
-newsLoop :: NetInfoSocket -> ((Maybe Event, IfMap) -> IO (Maybe a)) -> IO a
+newsLoop ::
+	NetInfoSocket -- ^ socket to listen on
+	-> ((Maybe Event, IfMap) -> IO (Maybe a)) -- ^ return Just to stop looping
+	-> IO a -- ^ returns value that vallback returned
 newsLoop nis callback
 	= atomically (dupTChan $ nisEvents nis)
 	>>= \chan -> atomically readNM
@@ -238,7 +241,7 @@ data Remote = Remote IP
 -- | IP, 4 or 6
 data IP
 	= IPv4 (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
-	| IPv6 (Word32, Word32, Word32, Word32) -- ^ goes well with 'Network.Socket.tupleToHostAddress6'
+	| IPv6 (Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
 	deriving (Eq, Ord)
 
 instance Show IP where

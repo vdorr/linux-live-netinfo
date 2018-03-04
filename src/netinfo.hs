@@ -32,9 +32,10 @@ import System.Linux.Ping
 
 --------------------------------------------------------------------------------
 
-#if 0
+
 --FIXME FIXME check if subnet is not already being scanned
 newSubnet''' :: (String -> IO ()) -> Socket -> IP -> Word8 -> IO () --ping all IPs in subnet
+#if 0
 newSubnet''' _ _ ip@[127,0,0,d] mask = return ()
 
 newSubnet''' trace sock ip@[a,b,c,d] mask = do
@@ -63,6 +64,8 @@ newSubnet''' trace sock ip@[a,b,c,d] mask = do
 	return ()
 newSubnet''' trace _ ip mask = do
 	trace $ show (here, ip, mask, "IGNORED!")
+#else
+newSubnet''' _ _ _ _ = return ()
 #endif
 
 --------------------------------------------------------------------------------
@@ -85,8 +88,8 @@ recvOne_ note trace sock
 		return []
 #endif
 
-newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
-newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
+--newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
+--newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
 
 --------------------------------------------------------------------------------
 
@@ -231,6 +234,37 @@ main = do
 	closeSocket sock
 #else
 
+startPingThread :: IO (TQueue (IP, Word8))
+startPingThread = do
+	pingQ <- newTQueueIO
+
+	forkIO $ withPingSocket Nothing $ \sock -> do
+#if 0
+-- FIXME do not let sock leave the bracket
+	forkIO $ forever $ do
+		(s, src) <- recvFrom sock 40
+		atomically $ modifyTVar pingPending $ \case
+			0 -> 0
+			x -> x - 1
+		let msg = runGet (ipv4Packet getICMPHeader) s
+--				print (here, src, B.length s, "received:", runGet (ipv4Packet getICMPHeader) s)
+		case msg of
+			Right IcmpHeader{icmp_type = 0, code = 0} -> do
+				qputstr $ show (here, "ping response from", src)
+			_ -> return ()
+#endif
+
+		forever $ do
+			(ip, netmask) <- atomically $ readTQueue pingQ
+--				atomically $ modifyTVar pingPending (+1)
+--				atomically $ readTVar pingPending >>= (guard . ( <= 8))
+			let qputstr _ = return ()
+			newSubnet''' qputstr sock ip netmask
+
+
+	return pingQ
+
+--------------------------------------------------------------------------------
 
 main :: IO ()
 main = do
@@ -238,19 +272,26 @@ main = do
 #if 1
 	args <- getArgs
 	let active = take 1 args == ["--active"]
+
+	eventHandler <- if active
+		then do
+			pingQ <- startPingThread
+			return $ \event -> case event of
+				AddSubnet _ ip (IfNet mask)
+					-> atomically $ writeTQueue pingQ (ip, mask)
+				DelSubnet _ ip (IfNet mask)
+					-> print here --error here --TODO remove from ping thread thread rotation
+				_ -> return ()
+		else
+			return (const (return ()))
+#else
+	let eventHandler = const (return ())
 #endif
-	pingQ <- newTQueueIO
 
 	withNetInfo $ flip newsLoop $
 		\(event, ifMap) -> do
 
-			when active $
-				case event of
-					Just (AddSubnet _ ip (IfNet mask))
-						-> newSubnet'' pingQ ip mask
-					Just (DelSubnet _ ip (IfNet mask))
-						-> print here --error here --TODO remove from ping thread thread rotation
-					_ -> return ()
+			maybe (return ()) eventHandler event
 
 			clearScreen
 			putStrLn "--------------------------------------------------------------------------------"
