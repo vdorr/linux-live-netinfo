@@ -122,7 +122,7 @@ newsLoop ::
 newsLoop nis callback
 	= atomically (dupTChan $ nisEvents nis)
 	>>= \chan -> atomically readNM
-	>>= \nm -> print here >> callback (Nothing, nm)
+	>>= \nm -> callback (Nothing, nm)
 	>>= maybe (loop chan) return
 	where
 	readNM = readTVar (nisNetInfo nis)

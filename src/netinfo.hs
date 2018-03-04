@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns -fwarn-unused-binds -fwarn-unused-imports -fno-warn-tabs #-}
-{-# LANGUAGE ScopedTypeVariables, CPP, RecordWildCards, LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables, CPP, RecordWildCards, ExistentialQuantification #-}
 
 #define here (__FILE__ ++ ":" ++ show (__LINE__ :: Integer) ++ " ")
 
@@ -10,10 +10,10 @@ import Control.Concurrent
 --import qualified Data.Map as M
 import Data.Word
 import Network.Socket hiding (sendTo, recvFrom)
-import Network.Socket.ByteString ( recvFrom)
+--import Network.Socket.ByteString ( recvFrom)
 --import qualified Data.ByteString as B
 --import Numeric (showHex)
-import Data.Bits
+--import Data.Bits
 import Control.Exception
 --import Data.Serialize
 
@@ -69,170 +69,20 @@ newSubnet''' _ _ _ _ = return ()
 #endif
 
 --------------------------------------------------------------------------------
-
 #if 0
-noPing :: a -> b -> IO ()
-noPing = \_ _ -> pure ()
+putTrace :: Show a => TQueue Trace -> a -> IO ()
+putTrace q w = atomically $ writeTQueue q (Trace w)
+
+data Trace = forall a. Show a => Trace a
+
+startTraceThread :: IO (TQueue Trace)
+startTraceThread
+	= newTQueueIO
+	>>= \q -> (void $ forkIO $ forever $ atomically (readTQueue q)
+		>>= \(Trace a) -> print a)
+	>> return q
 #endif
-
-#if 0
-noTrace :: String -> IO ()
-noTrace = const $ return ()
-
-qtrace_ :: Show a => TQueue String -> a -> IO ()
-qtrace_ q x = atomically $ writeTQueue q $ show x
-
-recvOne_ note trace sock
-	= catch (recvOne sock) $ \e -> do
-		trace $ show (here, "RECV FAILURE", note, (e :: IOException))
-		return []
-#endif
-
---newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
---newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
-
 --------------------------------------------------------------------------------
-
-{-
-fping -ag 192.168.0.0/24
--}
-
-#if 0
-main :: IO ()
-main = do
-
-	args <- getArgs
-	let active = take 1 args == ["--active"]
-
---http://elixir.free-electrons.com/linux/v4.15-rc5/source/include/uapi/linux/netlink.h
-
-	sock <- tapNetlink
-
-	traceQ <- newTQueueIO
-	forkIO ( forever $ atomically (readTQueue traceQ) >>= putStrLn )
-
-	let qputstr x = (atomically $ writeTQueue traceQ x) ::  (IO ())
---	let qtrace = qtrace_ traceQ --(qputstr . show) ::  (Show a => a -> IO ())
-
-	pingPending <- newTVarIO 0
-	subnets <- newTVarIO []
-	
-	pingQ <- newTQueueIO
-	let newSubnet e = case e of
-		AddSubnet _ ip (IfNet mask) -> newSubnet'' pingQ ip mask
-		DelSubnet _ ip (IfNet mask) -> error here --TODO remove from ping thread thread rotation
-		_ -> return ()
-
-#if 0
-	let newSubnet2 e = case e of
-		AddSubnet _ ip (IfNet mask) -> do
-			atomically $ do
---				s <- readTVar subnets
-				modifyTVar subnets $ let x = (ip, mask) in (x:) . filter (==x)
---				error here
-		DelSubnet _ ip (IfNet mask) -> do
-			atomically $ do
---				s <- readTVar subnets
---				writeTVar subnets $
-				modifyTVar subnets $ filter (==(ip, mask))
---			error here --TODO remove from ping thread thread rotation
-		_ -> return ()
-#endif
-
---XXX "ping mode" is enable by "--active"
-	when active $ void $ forkIO $
-		withPingSocket Nothing $ \sock -> do
-#if 1
--- FIXME do not let sock leave the bracket
-			forkIO $ forever $ do
-				(s, src) <- recvFrom sock 40
-				atomically $ modifyTVar pingPending $ \case
-					0 -> 0
-					x -> x - 1
-				let msg = runGet (ipv4Packet getICMPHeader) s
---				print (here, src, B.length s, "received:", runGet (ipv4Packet getICMPHeader) s)
-				case msg of
-					Right IcmpHeader{icmp_type = 0, code = 0} -> do
-						qputstr $ show (here, "ping response from", src)
-					_ -> return ()
-#endif
-			forever $ do
-				(ip, netmask) <- atomically $ readTQueue pingQ
---				atomically $ modifyTVar pingPending (+1)
---				atomically $ readTVar pingPending >>= (guard . ( <= 8))
-				newSubnet''' qputstr sock ip netmask
-
-	let traceX = qputstr --putStrLn
-#if 0
-	let trace = qputstr --putStrLn
-#else
-	let trace = noTrace
-#endif
-	nm <- emptyNMap
-	nmChanged <- newEmptyTMVarIO
-
-#if 1
-	let ping = newSubnet
-#else
-	let ping = noPing
-#endif
-
-	qtrace_ traceQ (here, "--------------------------------------------------------------------------------")
-
-	forkIO $ do
-
-		query sock queryGetLink >>= mapM_ (collectNews trace ping nm)
-		query sock queryGetNeigh >>= mapM_ (collectNews trace ping nm)
-
---XXX only now join neigborhood group
-		forkIO $ do
-			sock2 <- makeSocketGeneric eNETLINK_ROUTE
-			joinMulticastGroup sock2 eRTNLGRP_NEIGH
-			forever $ recvOne_ here traceX sock2 >>= (mapM_ (collectNews
-				trace (error here) nm))
-
-		query sock queryGetAddr >>= mapM_ (collectNews trace ping nm)
-
-		atomically (tryPutTMVar nmChanged ()) --trigger first dump
-
-		forever $ do
-			msg <- recvOne_ here traceX sock
---			print (here, msg)
-			x <- foldM (\b a -> (b ||) <$> collectNews trace ping nm a) False msg
-			when x $
-				atomically $ void $ tryPutTMVar nmChanged ()
---			return ()
-
---	print (here, "--------------------------------------------------------------------------------")
-
---	atomically (tryPutTMVar nmChanged ()) --trigger first dumpIfMap
---		>>= print
---	qtrace_ traceQ (here, "--------------------------------------------------------------------------------")
-
-	forever $ do
---		query sock queryGetLink >>= mapM_ (collectNews trace ping nm)
---		query sock queryGetAddr >>= mapM_ (collectNews trace ping nm)
---		query sock queryGetNeigh >>= mapM_ (collectNews trace ping nm)
---		recvOne sock >>= mapM_ (collectNews trace ping nm)
---		updated <- atomically $ readTVar nm
---		dumpIfMap updated
---		threadDelay 2000000
-
-		updated <- atomically $ do
-			takeTMVar nmChanged --wait for change in map
-			readTVar nm
---			print (here, updated)
-#if 1
-		clearScreen
-		qputstr "--------------------------------------------------------------------------------"
-		dumpIfMap qputstr updated
-#endif
-		return ()
-
-	forever getLine
-
-	closeSocket sock
-#else
 
 startPingThread :: IO (TQueue (IP, Word8))
 startPingThread = do
@@ -266,6 +116,10 @@ startPingThread = do
 
 --------------------------------------------------------------------------------
 
+{-
+fping -ag 192.168.0.0/24
+-}
+
 main :: IO ()
 main = do
 
@@ -297,6 +151,4 @@ main = do
 			putStrLn "--------------------------------------------------------------------------------"
 			dumpIfMap putStrLn ifMap
 			return Nothing
-#endif
-
 
