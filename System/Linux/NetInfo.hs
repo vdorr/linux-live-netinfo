@@ -236,21 +236,19 @@ data Remote = Remote IP
 	deriving (Show, Eq, Ord)
 
 -- | IP, 4 or 6
-type IP = [Word8]
-
-data IP'
-	= IPv4 (Word8, Word8, Word8, Word8) -- ^ you may want to use 'Network.Socket.tupleToHostAddress' with this value
-	| IPv6 (Word32, Word32, Word32, Word32) -- ^ you may want to use 'Network.Socket.tupleToHostAddress6' with this value
+data IP
+	= IPv4 (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
+	| IPv6 (Word32, Word32, Word32, Word32) -- ^ goes well with 'Network.Socket.tupleToHostAddress6'
 	deriving (Eq, Ord)
 
-instance Show IP' where
+instance Show IP where
 	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
 	show (IPv6 (a, b, c, d)) = "this is ipv6:" ++ show (a, b, c, d) --FIXME FIXME
 
 --------------------------------------------------------------------------------
 
-decodeIP' :: ByteString -> Either String IP'
-decodeIP' s
+decodeIP :: ByteString -> Either String IP
+decodeIP s
 	| len == 4 = IPv4 <$> runGet
 		((,,,) <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8) s
 	| len == 16 = IPv6 <$> runGet
@@ -259,11 +257,16 @@ decodeIP' s
 	where
 	len = B.length s
 
-decodeIP :: ByteString -> [Word8]
-decodeIP s = map (fromIntegral . ord) $ unpack s
+--decodeIP :: ByteString -> [Word8]
+--decodeIP s = map (fromIntegral . ord) $ unpack s
 
-getIfIPAttr :: Attributes -> Maybe [Word8]
-getIfIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
+getIfIPAttr :: Attributes -> Either String IP
+getIfIPAttr attr = maybe (Left "no IF addr attribute") decodeIP $ getIFAddr attr
+
+getNeighDstAttr :: Attributes -> Either String IP
+getNeighDstAttr attr = maybe (Left "no Dst attribute") decodeIP $ getDstAddr attr
+
+--attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
 --	getLLAddr attr = decodeMAC <$> getAttr eNDA_LLADDR attr
 --	getDstAddr attr = decodeIP <$> getAttr eNDA_DST attr
 
@@ -314,21 +317,21 @@ translateNewsA trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man n
 		= trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NAddrMsg {..} attr)
-	| messageType == eRTM_NEWADDR, Just ip <- getIfIPAttr attr
+	| messageType == eRTM_NEWADDR, Right ip <- getIfIPAttr attr
 		= trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
-	| messageType == eRTM_DELADDR, Just ip <- getIfIPAttr attr
+	| messageType == eRTM_DELADDR, Right ip <- getIfIPAttr attr
 		= trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ DelSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| otherwise
 		= trace (show (here, showMessageType messageType, getIfIPAttr attr)) --should not happen
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
-	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
+	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Right ip <- getNeighDstAttr attr
 --		, testBit neighState fNUD_REACHABLE
 		= trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
 		*> pure (Just $ AddNeigbour (fromIntegral neighIfindex) (LinkAddress mac) $ Remote ip) --FIXME uneasy feeling about fromIntegral
-	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
+	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Right ip <- getNeighDstAttr attr
 		= trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
 		*> pure (Just $ DelNeighbour (fromIntegral neighIfindex) (LinkAddress mac) (Remote ip))
 	| otherwise
