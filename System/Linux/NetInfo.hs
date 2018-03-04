@@ -3,7 +3,9 @@
 #define here (__FILE__ ++ ":" ++ show (__LINE__ :: Integer) ++ " ")
 
 module System.Linux.NetInfo
-	( IfMap, Iface(..), IfNet(..), IP, Remote(..)
+	(
+-- * Obtaining network informations
+	  IfMap, Iface(..), IfNet(..), IP(..), Remote(..)
 	, Event(..)
 #if 1
 	, NetInfoSocket
@@ -16,6 +18,7 @@ module System.Linux.NetInfo
 	, newsLoop
 	, getNetInfo
 #endif
+-- * Internal
 	, translateNews, translateNewsA
 	, mergeNews
 	, emptyNMap
@@ -89,6 +92,7 @@ startNetInfo = do
 	atomically $ takeTMVar initialized
 	return $ NIS nm events thread
 
+-- | 'startNetInfo' and 'stopNetInfo' conveniently combined with 'Control.Exception.bracket'
 withNetInfo :: (NetInfoSocket -> IO a) -> IO a
 withNetInfo = bracket startNetInfo stopNetInfo
 
@@ -228,17 +232,18 @@ data Iface = Iface
 	, ifaceNets :: M.Map IP IfNet -- ^ map from IP addresses to subnet size
 	, ifaceRemotes :: M.Map LinkAddress (S.Set Remote) -- ^ map from MAC of remote device to set of remote IPs
 	, ifaceUp :: Bool -- ^ interface is Up
---	, ifFlags :: [Int]
 	} deriving (Show, Eq, Ord)
+--	, ifFlags :: [Int]
 
 -- | Netmask
 data IfNet = IfNet { ifnLength :: Word8 } --netmask
 	deriving (Show, Eq, Ord)
 
+-- | IP address of remote device
 data Remote = Remote IP
 	deriving (Show, Eq, Ord)
 
--- | IP, 4 or 6
+-- | IP address, v4 or v6
 data IP
 	= IPv4 (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
 	| IPv6 (Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
@@ -282,6 +287,7 @@ getNeighDstAttr attr = maybe (Left "no Dst attribute") decodeIP $ getDstAddr att
 
 --------------------------------------------------------------------------------
 
+-- | Event received from netlink sock
 data Event
 	= AddSubnet Word32 IP IfNet -- ^ New IP address added on interface identified by index
 	| DelSubnet Word32 IP IfNet
@@ -296,10 +302,7 @@ data Event
 	| ErrorEvent String
 	deriving (Show, Eq, Ord)
 
-
-translateNews :: Packet Message -> Maybe Event
-translateNews = runIdentity . translateNewsA (const (pure ()))
-
+-- | Translate netlink message to 'Event'
 translateNewsA :: Applicative a =>
 		(String -> a ())
                       -> Packet Message
@@ -344,8 +347,13 @@ translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
 			fmap (fmap ord.unpack) (getDstAddr attr) )) --should not happen
 		*> pure Nothing
 
+-- | Version of 'translateNewsA' without bells and whistles
+translateNews :: Packet Message -> Maybe Event
+translateNews = runIdentity . translateNewsA (const (pure ()))
+
 --------------------------------------------------------------------------------
 
+-- | Update 'IfMap' with 'Event'
 mergeNews :: IfMap -> Event -> IfMap
 mergeNews nm (ErrorEvent _) = nm
 mergeNews nm (AddIface interfaceIndex name mac isUp)
@@ -415,6 +423,7 @@ collectNews trace newSubnet nmVar msg = do
 
 --------------------------------------------------------------------------------
 
+-- | Open netlink ROUTE socket that subscribes to LINK, IPV4_IFADDR and NEIGH multicasts
 tapNetlink :: IO NetlinkSocket
 tapNetlink
 	= makeSocketGeneric eNETLINK_ROUTE

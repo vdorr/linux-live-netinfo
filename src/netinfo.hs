@@ -122,7 +122,6 @@ fping -ag 192.168.0.0/24
 
 main :: IO ()
 main = do
-
 #if 1
 	args <- getArgs
 	let active = take 1 args == ["--active"]
