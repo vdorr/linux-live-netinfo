@@ -35,6 +35,7 @@ import Control.Concurrent.STM
 import Control.Concurrent
 import qualified Data.Set as S
 import Data.ByteString.Char8 (ByteString, unpack) --append, init, pack, 
+import qualified Data.ByteString as B
 import Data.Bits
 import Data.Maybe
 import Data.Char (ord)
@@ -46,6 +47,7 @@ import Data.Functor.Identity
 --import Network.Socket
 import Numeric (showHex)
 import Data.List
+import Data.Serialize
 
 --------------------------------------------------------------------------------
 
@@ -147,11 +149,6 @@ recvOne_ note trace sock
 
 --------------------------------------------------------------------------------
 
-decodeIP :: ByteString -> [Word8]
-decodeIP s = map (fromIntegral . ord) $ unpack s
-
---------------------------------------------------------------------------------
-
 getFlags :: FiniteBits b => b -> [Int]
 getFlags x = catMaybes $ fmap (\bit -> if testBit x bit then Just bit else Nothing )
 	[ 0 .. finiteBitSize x - 1 ]
@@ -235,20 +232,47 @@ data Iface = Iface
 data IfNet = IfNet { ifnLength :: Word8 } --netmask
 	deriving (Show, Eq, Ord)
 
+data Remote = Remote IP
+	deriving (Show, Eq, Ord)
+
 -- | IP, 4 or 6
 type IP = [Word8]
 
 data IP'
-	= IPv4 (Word8, Word8, Word8, Word8)
-	| IPv6 (Word32, Word32, Word32, Word32)
+	= IPv4 (Word8, Word8, Word8, Word8) -- ^ you may want to use 'Network.Socket.tupleToHostAddress' with this value
+	| IPv6 (Word32, Word32, Word32, Word32) -- ^ you may want to use 'Network.Socket.tupleToHostAddress6' with this value
 	deriving (Eq, Ord)
 
 instance Show IP' where
 	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
 	show (IPv6 (a, b, c, d)) = "this is ipv6:" ++ show (a, b, c, d) --FIXME FIXME
 
-data Remote = Remote IP
-	deriving (Show, Eq, Ord)
+--------------------------------------------------------------------------------
+
+decodeIP' :: ByteString -> Either String IP'
+decodeIP' s
+	| len == 4 = IPv4 <$> runGet
+		((,,,) <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8) s
+	| len == 16 = IPv6 <$> runGet
+		((,,,) <$> getWord32host <*> getWord32host <*> getWord32host <*> getWord32host) s
+	| otherwise = Left $ "unusual address length: " ++ show len
+	where
+	len = B.length s
+
+decodeIP :: ByteString -> [Word8]
+decodeIP s = map (fromIntegral . ord) $ unpack s
+
+getIfIPAttr :: Attributes -> Maybe [Word8]
+getIfIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
+--	getLLAddr attr = decodeMAC <$> getAttr eNDA_LLADDR attr
+--	getDstAddr attr = decodeIP <$> getAttr eNDA_DST attr
+
+#if 0
+	addr addrFamily
+		| addrFamily == eAF_INET = show . decodeIPv4
+		| addrFamily == eAF_INET6 = show . decodeIPv6
+		| otherwise = error here
+#endif
 
 --------------------------------------------------------------------------------
 
@@ -290,14 +314,14 @@ translateNewsA trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man n
 		= trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NAddrMsg {..} attr)
-	| messageType == eRTM_NEWADDR, Just ip <- getIPAttr attr
+	| messageType == eRTM_NEWADDR, Just ip <- getIfIPAttr attr
 		= trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
-	| messageType == eRTM_DELADDR, Just ip <- getIPAttr attr
+	| messageType == eRTM_DELADDR, Just ip <- getIfIPAttr attr
 		= trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ DelSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| otherwise
-		= trace (show (here, showMessageType messageType, getIPAttr attr)) --should not happen
+		= trace (show (here, showMessageType messageType, getIfIPAttr attr)) --should not happen
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Just ip <- decodeIP <$> getDstAddr attr
@@ -367,18 +391,6 @@ handleNews'' trace newSubnet nm msg
 		= newSubnet event
 		*> pure (Just $ mergeNews nm event)
 	handleEvent event = pure $ Just $ mergeNews nm event
-
-getIPAttr :: Attributes -> Maybe [Word8]
-getIPAttr attr = decodeIP <$> getIFAddr attr --attr = decodeIP <$> M.lookup eIFA_ADDRESS attr
---	getLLAddr attr = decodeMAC <$> getAttr eNDA_LLADDR attr
---	getDstAddr attr = decodeIP <$> getAttr eNDA_DST attr
-
-#if 0
-	addr addrFamily
-		| addrFamily == eAF_INET = show . decodeIPv4
-		| addrFamily == eAF_INET6 = show . decodeIPv6
-		| otherwise = error here
-#endif
 
 collectNews
   :: (String -> IO ())

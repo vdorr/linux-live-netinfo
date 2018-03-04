@@ -12,16 +12,16 @@ import Data.Word
 import Network.Socket hiding (sendTo, recvFrom)
 import Network.Socket.ByteString ( recvFrom)
 --import qualified Data.ByteString as B
-import Numeric (showHex)
+--import Numeric (showHex)
 import Data.Bits
 import Control.Exception
-import Data.Serialize
+--import Data.Serialize
 
 import System.Console.ANSI (clearScreen)
 import System.Environment (getArgs)
 
-import System.Linux.Netlink
-import System.Linux.Netlink.Constants
+--import System.Linux.Netlink
+--import System.Linux.Netlink.Constants
 
 import System.Linux.NetInfo
 import System.Linux.Ping
@@ -76,9 +76,6 @@ noPing = \_ _ -> pure ()
 noTrace :: String -> IO ()
 noTrace = const $ return ()
 
-newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
-newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
-
 qtrace_ :: Show a => TQueue String -> a -> IO ()
 qtrace_ q x = atomically $ writeTQueue q $ show x
 
@@ -87,6 +84,9 @@ recvOne_ note trace sock
 		trace $ show (here, "RECV FAILURE", note, (e :: IOException))
 		return []
 #endif
+
+newSubnet'' :: TQueue (IP, Word8) -> IP -> Word8 -> IO () --ping all IPs in subnet
+newSubnet'' q ip mask = atomically $ writeTQueue q (ip, mask)
 
 --------------------------------------------------------------------------------
 
@@ -234,13 +234,24 @@ main = do
 
 main :: IO ()
 main = do
-#if 0
+
+#if 1
 	args <- getArgs
 	let active = take 1 args == ["--active"]
 #endif
+	pingQ <- newTQueueIO
 
-	withNetInfo $
-		flip newsLoop $ \(event, ifMap) -> do
+	withNetInfo $ flip newsLoop $
+		\(event, ifMap) -> do
+
+			when active $
+				case event of
+					Just (AddSubnet _ ip (IfNet mask))
+						-> newSubnet'' pingQ ip mask
+					Just (DelSubnet _ ip (IfNet mask))
+						-> print here --error here --TODO remove from ping thread thread rotation
+					_ -> return ()
+
 			clearScreen
 			putStrLn "--------------------------------------------------------------------------------"
 			dumpIfMap putStrLn ifMap
