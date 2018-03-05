@@ -15,8 +15,8 @@ import qualified Data.ByteString as B
 import Data.Serialize
 import Data.Bits
 
-import Network.Socket hiding (sendTo)
-import Network.Socket.ByteString (sendTo)
+import Network.Socket hiding (sendTo, recvFrom)
+import Network.Socket.ByteString (sendTo, recvFrom)
 import Control.Exception
 import System.Posix.Process
 import Data.Maybe (fromMaybe)
@@ -92,8 +92,25 @@ ipv4Packet payload = do
 
 --------------------------------------------------------------------------------
 
-ipv4Range' :: (Word8, Word8, Word8, Word8) -> Word8 -> [Word32]
-ipv4Range' ip = ipv4Range (ntohl $ tupleToHostAddress ip)
+-- | 127.0.0.1 in host format
+localIPv4 :: Word32
+localIPv4 = tupleToHostAddress (127,0,0,1)
+
+-- | List of all IPs in given subnet worth pinging, localhost is ignored
+ipv4SubnetPingList :: Word32 -> Word8 -> [Word32]
+ipv4SubnetPingList host mask
+	| host == localIPv4 = []
+	| otherwise = ipv4Range host mask 
+--let
+--		m = shiftL maxBound (32 - fromIntegral mask)
+--		host_ = ntohl host .&. m
+--		x = [1..(2^(32 - mask))-2]
+--		in fmap (htonl . (+host_)) x
+
+--------------------------------------------------------------------------------
+
+--ipv4Range' :: (Word8, Word8, Word8, Word8) -> Word8 -> [Word32]
+--ipv4Range' ip = ipv4Range (ntohl $ tupleToHostAddress ip)
 
 ipv4Range :: Word32 -> Word8 -> [Word32]
 ipv4Range host mask = fmap (htonl . (network+)) range
@@ -122,6 +139,11 @@ sendPing sock dst = do
 	catch (sendTo sock packet addr) $ \e -> do
 		print (here, addr, (e :: IOException))
 		return (-1)
+
+receivePingFrom :: Socket -> IO (Either String IcmpHeader, SockAddr)
+receivePingFrom sock = do
+	(s, src) <- recvFrom sock 40
+	return $ (runGet (ipv4Packet getICMPHeader) s, src)
 
 --------------------------------------------------------------------------------
 
