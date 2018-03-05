@@ -26,7 +26,8 @@ pingSubnet trace sock ipaddr@(IPv4 host) mask = do
 	let pingList = ipv4SubnetPingList host mask --FIXME FIXME check if subnet is not already being scanned
 	forM_ pingList $ \h -> do
 		sendPing sock h
-		trace $ show (here, IPv4 h)
+--		trace $ show (here, IPv4 h)
+--		print (here, IPv4 h)
 		--threadDelay 1000
 	trace $ show (here, "Done", ipaddr, length pingList)
 pingSubnet trace _ ip mask = trace $ show (here, ip, mask, "IGNORED!")
@@ -51,8 +52,12 @@ startPingThread :: IO (TQueue (IP, Word8))
 startPingThread = do
 	pingQ <- newTQueueIO
 
+#if 0
+	tr <- startTraceThread
+	let qputstr = putTrace tr
+#else
 	let qputstr _ = return ()
-
+#endif
 	forkIO $ withPingSocket Nothing $ \sock -> do
 #if 1
 -- FIXME do not let sock leave the bracket
@@ -81,6 +86,11 @@ startPingThread = do
 fping -ag 192.168.0.0/24
 -}
 
+pingAll :: (Event -> IO b) -> IfMap -> IO ()
+pingAll handler nm = do
+	forM_ (getSubnets nm) $ \(ip, mask) -> do
+		handler $ AddSubnet 0 ip (IfNet mask)
+
 main :: IO ()
 main = do
 #if 1
@@ -105,7 +115,7 @@ main = do
 	withNetInfo $ flip newsLoop $
 		\(event, ifMap) -> do
 
-			maybe (return ()) eventHandler event
+			maybe (pingAll eventHandler ifMap) eventHandler event
 
 			clearScreen
 			putStrLn "--------------------------------------------------------------------------------"

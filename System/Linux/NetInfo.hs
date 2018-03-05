@@ -18,6 +18,9 @@ module System.Linux.NetInfo
 	, newsLoop
 	, getNetInfo
 #endif
+-- * Utility functions
+	, getSubnets
+	, dumpIfMap
 -- * Internal
 	, translateNews, translateNewsA
 	, mergeNews
@@ -25,7 +28,6 @@ module System.Linux.NetInfo
 	, queryGetLink, queryGetAddr, queryGetNeigh
 	, collectNews
 	, tapNetlink
-	, dumpIfMap
 ) where
 
 import System.Linux.Netlink
@@ -44,7 +46,7 @@ import Data.Maybe
 import Data.Char (ord)
 import Control.Monad
 
-import Control.Exception (bracket, catch, IOException)
+import Control.Exception
 import Data.Functor.Identity
 
 import Network.Socket (hostAddress6ToTuple, hostAddressToTuple)
@@ -260,19 +262,35 @@ instance Show IP where
 
 --------------------------------------------------------------------------------
 
+-- | Get all subnets
+getSubnets :: IfMap -> [(IP, Word8)]
+getSubnets = concatMap (fmap (fmap ifnLength) . M.assocs . ifaceNets) . M.elems
+
+-- | Dump state using supplied line printing function
+dumpIfMap :: (String -> IO ()) -> IfMap -> IO () --FIXME decouple from IO
+dumpIfMap put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets remotes up) -> do
+	put $ show ifIndex ++ " " ++ ifName ++ " " ++ show mac ++
+		(if up then " UP" else " DOWN")
+--		(show up)
+	put $ "\tnets:"
+	forM_ (M.toList nets) $ \(ip, IfNet mask) -> do
+		put $ "\t\t" ++ show ip ++ "/" ++ show mask
+	put $ "\tremotes:"
+	forM_ (M.toList remotes) $ \(mac, ips) -> do
+		put $ "\t\t" ++ show mac
+		forM_ ips $ \(Remote ip) -> do
+			put $ "\t\t\t" ++ show ip
+
+--------------------------------------------------------------------------------
+
 decodeIP :: ByteString -> Either String IP
 decodeIP s
 	| len == 4 = IPv4 <$> runGet getWord32host s
---		((,,,) <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8) s
 	| len == 16 = IPv6 <$> runGet
---		((,,,) <$> getWord32host <*> getWord32host <*> getWord32host <*> getWord32host) s
 		((,,,) <$> getWord32be <*> getWord32be <*> getWord32be <*> getWord32be) s
 	| otherwise = Left $ "unusual address length: " ++ show len
 	where
 	len = B.length s
-
---decodeIP :: ByteString -> [Word8]
---decodeIP s = map (fromIntegral . ord) $ unpack s
 
 getIfIPAttr :: Attributes -> Either String IP
 getIfIPAttr attr = maybe (Left "no IF addr attribute") decodeIP $ getIFAddr attr
@@ -441,23 +459,4 @@ tapNetlink
 		*>
 #endif
 		pure sock
-
---------------------------------------------------------------------------------
-
---FIXME decouple from IO
-dumpIfMap :: (String -> IO ()) -> IfMap -> IO ()
-dumpIfMap put updated = forM_ (M.toList updated) $ \(ifIndex, Iface ifName mac nets remotes up) -> do
-	put $ show ifIndex ++ " " ++ ifName ++ " " ++ show mac ++
-		(if up then " UP" else " DOWN")
---		(show up)
-	put $ "\tnets:"
-	forM_ (M.toList nets) $ \(ip, IfNet mask) -> do
-		put $ "\t\t" ++ show ip ++ "/" ++ show mask
-	put $ "\tremotes:"
-	forM_ (M.toList remotes) $ \(mac, ips) -> do
-		put $ "\t\t" ++ show mac
-		forM_ ips $ \(Remote ip) -> do
-			put $ "\t\t\t" ++ show ip
-
---------------------------------------------------------------------------------
 

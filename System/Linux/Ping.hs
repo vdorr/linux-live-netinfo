@@ -100,12 +100,11 @@ localIPv4 = tupleToHostAddress (127,0,0,1)
 ipv4SubnetPingList :: Word32 -> Word8 -> [Word32]
 ipv4SubnetPingList host mask
 	| host == localIPv4 = []
-	| otherwise = ipv4Range host mask 
---let
---		m = shiftL maxBound (32 - fromIntegral mask)
---		host_ = ntohl host .&. m
---		x = [1..(2^(32 - mask))-2]
---		in fmap (htonl . (+host_)) x
+	| otherwise = let--ipv4Range host mask 
+		m = shiftL maxBound (32 - fromIntegral mask)
+		host_ = ntohl host .&. m
+		x = [1..(2^(32 - mask))-2]
+		in fmap (htonl . (+host_)) x
 
 --------------------------------------------------------------------------------
 
