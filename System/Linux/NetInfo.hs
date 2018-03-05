@@ -47,7 +47,7 @@ import Control.Monad
 import Control.Exception (bracket, catch, IOException)
 import Data.Functor.Identity
 
---import Network.Socket
+import Network.Socket (hostAddress6ToTuple, hostAddressToTuple)
 import Numeric (showHex)
 import Data.List
 import Data.Serialize
@@ -245,22 +245,28 @@ data Remote = Remote IP
 
 -- | IP address, v4 or v6
 data IP
-	= IPv4 (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
+	= IPv4 Word32 -- (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
 	| IPv6 (Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
 	deriving (Eq, Ord)
+--FIXME for sake of consistency ipv4 should in host endiann word32 form
 
 instance Show IP where
-	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
-	show (IPv6 (a, b, c, d)) = "this is ipv6:" ++ show (a, b, c, d) --FIXME FIXME
+--	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
+	show (IPv4 addr) = let (a, b, c, d) = hostAddressToTuple addr
+		in intercalate "." $ fmap show [a, b, c, d]
+	show (IPv6 addr@(a, b, c, d)) -- = "this is ipv6:" ++ show (a, b, c, d) --FIXME FIXME
+		= let (q, w, e, r, t, z, u, i) = hostAddress6ToTuple addr
+			in intercalate ":" $ fmap (flip showHex "") [q, w, e, r, t, z, u, i]
 
 --------------------------------------------------------------------------------
 
 decodeIP :: ByteString -> Either String IP
 decodeIP s
-	| len == 4 = IPv4 <$> runGet
-		((,,,) <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8) s
+	| len == 4 = IPv4 <$> runGet getWord32host s
+--		((,,,) <$> getWord8 <*> getWord8 <*> getWord8 <*> getWord8) s
 	| len == 16 = IPv6 <$> runGet
-		((,,,) <$> getWord32host <*> getWord32host <*> getWord32host <*> getWord32host) s
+--		((,,,) <$> getWord32host <*> getWord32host <*> getWord32host <*> getWord32host) s
+		((,,,) <$> getWord32be <*> getWord32be <*> getWord32be <*> getWord32be) s
 	| otherwise = Left $ "unusual address length: " ++ show len
 	where
 	len = B.length s
