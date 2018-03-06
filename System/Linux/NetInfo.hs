@@ -54,6 +54,8 @@ import Numeric (showHex)
 import Data.List
 import Data.Serialize
 
+--TODO if library switch to polling, it should generate events by itself
+
 --------------------------------------------------------------------------------
 
 -- | Handle to netlink socket

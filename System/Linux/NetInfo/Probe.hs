@@ -5,8 +5,9 @@
 
 module System.Linux.NetInfo.Probe (
 	  PingSocket
-	, pingSubnet
 	, withPingNewSubnets
+	, pingAll
+	, pingSubnet
 ) where
 
 import System.Linux.NetInfo
@@ -17,6 +18,7 @@ import Data.Word
 import Control.Monad
 import Control.Concurrent
 import Control.Concurrent.STM
+import Control.Exception
 
 --------------------------------------------------------------------------------
 
@@ -51,20 +53,28 @@ startPingThread nis = do
 #if 1
 -- FIXME do not let sock leave the bracket
 		forkIO $ forever $ do
-	--		atomically $ modifyTVar pingPending $ \case
-	--			0 -> 0
-	--			x -> x - 1
+
 			(msg, src) <- receivePingFrom sock
 			case msg of
 				Right IcmpHeader{icmp_type = 0, code = 0} -> do
 					qputstr $ show (here, "ping response from", src)
 				_ -> return ()
 #endif
+
+		forkIO $ newsLoop nis $ \(event, ifMap) -> do
+
+			case event of
+				Just (AddSubnet _ ip (IfNet mask))
+					-> atomically $ writeTQueue pingQ (ip, mask)
+				Just (DelSubnet _ ip (IfNet mask))
+					-> print here --error here --TODO remove from ping thread thread rotation
+				_ -> return ()
+
+			return Nothing
+
 		forever $ do
 --FIXME keep some state, timeouts, do not DOS something
 			(ip, netmask) <- atomically $ readTQueue pingQ
---			atomically $ modifyTVar pingPending (+1)
---			atomically $ readTVar pingPending >>= (guard . ( <= 8))
 			pingSubnet qputstr sock ip netmask
 
 	return $ PingSocket nis thread pingQ
@@ -74,22 +84,22 @@ startPingThread nis = do
 
 data PingSocket = PingSocket NetInfoSocket ThreadId (TQueue (IP, Word8))
 
+pingAll :: PingSocket -> IO ()
+pingAll (PingSocket nis _ pingQ) = do
+	subnets <- getSubnets <$> queryNetInfo nis
+	forM_ subnets $ \(ip, mask) ->
+		atomically $ writeTQueue pingQ (ip, mask)
+
+killPingThread :: PingSocket -> IO ()
+killPingThread (PingSocket _ thread _) = killThread thread
+
 -- |
 withPingNewSubnets ::
 	NetInfoSocket -- ^
 	-> (PingSocket -> IO a) -- ^
 	-> IO a -- ^
-withPingNewSubnets nis body = do
---	thread <- forkIO $ withPingSocket Nothing $ \sock -> do
---		return ()
-
-	ps@(PingSocket _ thread _) <- startPingThread nis
-
---thread <- forkIO
-	y <- withPingSocket Nothing $ \sock -> do
-		body ps
-	killThread thread -- FIXME use bracket
-	return y
+withPingNewSubnets nis body
+	= bracket (startPingThread nis) killPingThread body
 
 --------------------------------------------------------------------------------
 
