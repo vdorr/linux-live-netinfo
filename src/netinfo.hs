@@ -12,7 +12,8 @@ import System.Console.ANSI (clearScreen) --TODO add some colors :)
 import System.Environment (getArgs)
 
 import System.Linux.NetInfo
-import System.Linux.Ping
+import System.Linux.Ping --TODO remove
+--import System.Linux.NetInfo.Probe
 
 --https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
 --https://superuser.com/questions/1135757/scanning-in-ipv6

@@ -6,4 +6,7 @@ Provides real time updates on state of network neighbourhood (NICs, IPs, ARP tab
 
 This is work in progress and quite experimental.
 
+to send ping on linux (that is, to use raw sock), certain capabilities are required:
+    sudo setcap cap_net_raw+pe FILE
+or run as superuser, the former is strongly advised
 

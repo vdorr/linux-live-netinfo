@@ -35,9 +35,9 @@ executable netinfo
 
 
 library
-  exposed-modules:     System.Linux.Ping, System.Linux.NetInfo
+  exposed-modules:     System.Linux.Ping, System.Linux.NetInfo, System.Linux.NetInfo.Probe
   -- other-modules:       
-  other-extensions:    CPP, RecordWildCards, ScopedTypeVariables
+  other-extensions:    CPP, RecordWildCards
   build-depends:       netlink == 1.1.1.0
                      , base >=4.8 && <4.10
                      , bytestring >=0.10 && <0.11
