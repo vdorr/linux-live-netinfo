@@ -114,7 +114,7 @@ netInfoVarSTM = nisNetInfo
 
 -- | Returns STM channels providing stream of 'Event'
 netInfoEventsSTM :: NetInfoSocket -> IO (TChan Event)
-netInfoEventsSTM = (atomically . cloneTChan) . nisEvents
+netInfoEventsSTM = (atomically . dupTChan) . nisEvents
 
 -- | Convenience function that returns snapshot of network informations
 getNetInfo :: IO IfMap

@@ -20,6 +20,18 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 
+import Data.List
+import Control.Applicative
+
+--------------------------------------------------------------------------------
+
+stmTimeout' :: Int -> a -> STM a -> IO a
+stmTimeout' microseconds defVal f
+	= registerDelay microseconds
+	>>= \timeouted -> atomically $
+		f
+		<|> defVal <$ (readTVar timeouted >>= check)
+
 --------------------------------------------------------------------------------
 
 -- | Ping all IPs in subnet
@@ -61,26 +73,32 @@ startPingThread nis = do
 				_ -> return ()
 #endif
 
-		forkIO $ newsLoop nis $ \(event, ifMap) -> do
+		events <- netInfoEventsSTM nis
+		subnets <- getSubnets <$> queryNetInfo nis
+--		print (here, subnets)
 
+		loop subnets $ \pingList -> do
+			print (here, pingList)
+
+			event <- stmTimeout' 200000 Nothing $ Just <$> readTChan events
+--			print (here, event)
 			case event of
 				Just (AddSubnet _ ip (IfNet mask))
-					-> atomically $ writeTQueue pingQ (ip, mask)
+					-> pingSubnet qputstr sock ip mask
+					>> let s = (ip, mask)
+						in return (delete s pingList ++ [s])
 				Just (DelSubnet _ ip (IfNet mask))
-					-> print here --error here --TODO remove from ping thread thread rotation
-				_ -> return ()
-
-			return Nothing
-
-		forever $ do
---FIXME keep some state, timeouts, do not DOS something
-			(ip, netmask) <- atomically $ readTQueue pingQ
-			pingSubnet qputstr sock ip netmask
+					-> return (delete (ip, mask) pingList)
+				_ -> case pingList of
+					(ip, mask):xs
+						-> pingSubnet qputstr sock ip mask
+						>> return (xs ++ [(ip, mask)])
+					[] -> return []
 
 	return $ PingSocket nis thread pingQ
+	where
+	loop l f = () <$ (f l >>= flip loop f)
 
---TODO TODO action to trigger ping all / ping specified subnet
---TODO TODO TODO periodic re-scan
 
 data PingSocket = PingSocket NetInfoSocket ThreadId (TQueue (IP, Word8))
 
@@ -93,7 +111,7 @@ pingAll (PingSocket nis _ pingQ) = do
 killPingThread :: PingSocket -> IO ()
 killPingThread (PingSocket _ thread _) = killThread thread
 
--- |
+-- | Spawns a ping thread and pass its handle to inner action, thread gets killed when action ends or throws an exception.
 withPingNewSubnets ::
 	NetInfoSocket -- ^
 	-> (PingSocket -> IO a) -- ^
