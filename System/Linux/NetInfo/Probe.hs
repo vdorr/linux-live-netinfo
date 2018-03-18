@@ -75,7 +75,7 @@ startPingThread nis = do
 	thread <- forkIO $ withPingSocket Nothing $ \sock -> do
 #if 1
 -- FIXME do not let sock leave the bracket
-		forkIO $ forever $ do
+		forkIO $ flip catch (\e -> print (here, e :: IOException)) $ forever $ do
 
 			(msg, src) <- receivePingFrom sock
 			case msg of

@@ -14,7 +14,7 @@ import Network.Socket.ByteString (sendTo, recvFrom)
 import Control.Exception
 import System.Posix.Process
 import Data.Maybe (fromMaybe)
-import Control.Concurrent
+--import Control.Concurrent
 
 --------------------------------------------------------------------------------
 
@@ -131,8 +131,8 @@ sendPing sock dst = do
 	let packet = buildPacket (fromIntegral pid) 0 B.empty
 	let addr = SockAddrInet 0 dst
 	catch (sendTo sock packet addr) $ \e -> do
-		print (here, addr, (e :: IOException))
-		threadDelay 1000
+		print (here, addr, e :: IOException)
+--		threadDelay 1000
 		return (-1)
 
 receivePingFrom :: Socket -> IO (Either String IcmpHeader, SockAddr)

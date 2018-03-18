@@ -28,6 +28,7 @@ startTraceThread
 #endif
 --------------------------------------------------------------------------------
 
+--FIXME handle ctrl+c cleanly
 main :: IO ()
 main = do
 	args <- getArgs
