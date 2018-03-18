@@ -42,14 +42,17 @@ pingSubnet trace sock ipaddr mask = do
 
 -- | Ping all IPs in subnet
 pingSubnet' :: (String -> IO ()) -> TVar Integer -> Socket -> IP -> Word8 -> IO ()
-pingSubnet' trace outProbes sock ipaddr@(IPv4 host) mask = do
+pingSubnet' trace outstandingProbes sock ipaddr@(IPv4 host) mask = do
 	trace $ show (here, "Begin", mask, ipaddr)
-	let pingList = ipv4SubnetPingList host mask --FIXME FIXME check if subnet is not already being scanned
+	let pingList = ipv4SubnetPingList host mask
 	forM_ pingList $ \h -> do
+		atomically $ modifyTVar' outstandingProbes (+1)
+		atomically $ readTVar outstandingProbes
+			>>= \out -> check $ out < 64 --TODO do not wait forever, timeout
 		sendPing sock h
 --		trace $ show (here, IPv4 h)
 --		print (here, IPv4 h)
-		threadDelay 1000
+--		threadDelay 1000
 	trace $ show (here, "Done", ipaddr, length pingList)
 pingSubnet' trace _ _ ip mask
 	= trace $ show (here, ip, mask, "IGNORED!")
@@ -77,7 +80,7 @@ startPingThread nis = do
 			(msg, src) <- receivePingFrom sock
 			case msg of
 				Right h@IcmpHeader{icmp_type = _, code = c} -> do
-					print $ show (here, "ping response from", src, h)
+					qputstr $ show (here, "ping response from", src, h)
 					atomically $ modifyTVar' outProbes (+(-1))
 				_ -> return ()
 #endif
