@@ -36,16 +36,23 @@ stmTimeout' microseconds defVal f
 
 -- | Ping all IPs in subnet
 pingSubnet :: (String -> IO ()) -> Socket -> IP -> Word8 -> IO ()
-pingSubnet trace sock ipaddr@(IPv4 host) mask = do
+pingSubnet trace sock ipaddr mask = do
+	outProbes <- newTVarIO 0 --dummy
+	pingSubnet' trace outProbes sock ipaddr mask
+
+-- | Ping all IPs in subnet
+pingSubnet' :: (String -> IO ()) -> TVar Integer -> Socket -> IP -> Word8 -> IO ()
+pingSubnet' trace outProbes sock ipaddr@(IPv4 host) mask = do
 	trace $ show (here, "Begin", mask, ipaddr)
 	let pingList = ipv4SubnetPingList host mask --FIXME FIXME check if subnet is not already being scanned
 	forM_ pingList $ \h -> do
 		sendPing sock h
 --		trace $ show (here, IPv4 h)
 --		print (here, IPv4 h)
-		--threadDelay 1000
+		threadDelay 1000
 	trace $ show (here, "Done", ipaddr, length pingList)
-pingSubnet trace _ ip mask = trace $ show (here, ip, mask, "IGNORED!")
+pingSubnet' trace _ _ ip mask
+	= trace $ show (here, ip, mask, "IGNORED!")
 
 --pingNewSubnets :: NetInfoSocket -> IO ()
 --pingNewSubnets = undefined
@@ -54,6 +61,7 @@ pingSubnet trace _ ip mask = trace $ show (here, ip, mask, "IGNORED!")
 startPingThread :: NetInfoSocket -> IO PingSocket
 startPingThread nis = do
 	pingQ <- newTQueueIO
+	outProbes <- newTVarIO 0
 
 #if 0
 	tr <- startTraceThread
@@ -68,37 +76,39 @@ startPingThread nis = do
 
 			(msg, src) <- receivePingFrom sock
 			case msg of
-				Right IcmpHeader{icmp_type = 0, code = 0} -> do
-					qputstr $ show (here, "ping response from", src)
+				Right h@IcmpHeader{icmp_type = _, code = c} -> do
+					print $ show (here, "ping response from", src, h)
+					atomically $ modifyTVar' outProbes (+(-1))
 				_ -> return ()
 #endif
 
 		events <- netInfoEventsSTM nis
 		subnets <- getSubnets <$> queryNetInfo nis
---		print (here, subnets)
 
 		loop subnets $ \pingList -> do
-			print (here, pingList)
-
-			event <- stmTimeout' 200000 Nothing $ Just <$> readTChan events
---			print (here, event)
+			event <- stmTimeout' 500000 Zilch
+				$ Ev <$> readTChan events
+				<|> Rq <$> readTQueue pingQ
 			case event of
-				Just (AddSubnet _ ip (IfNet mask))
-					-> pingSubnet qputstr sock ip mask
+				Ev (AddSubnet _ ip (IfNet mask))
+					-> pingSubnet' qputstr outProbes sock ip mask
 					>> let s = (ip, mask)
 						in return (delete s pingList ++ [s])
-				Just (DelSubnet _ ip (IfNet mask))
+				Ev (DelSubnet _ ip (IfNet mask))
 					-> return (delete (ip, mask) pingList)
+				Rq (ip, mask)
+					-> pingSubnet' qputstr outProbes sock ip mask
+					>> return pingList
 				_ -> case pingList of
 					(ip, mask):xs
-						-> pingSubnet qputstr sock ip mask
+						-> pingSubnet' qputstr outProbes sock ip mask
 						>> return (xs ++ [(ip, mask)])
 					[] -> return []
-
 	return $ PingSocket nis thread pingQ
 	where
 	loop l f = () <$ (f l >>= flip loop f)
 
+data E = Ev Event | Rq (IP, Word8) | Zilch
 
 data PingSocket = PingSocket NetInfoSocket ThreadId (TQueue (IP, Word8))
 
