@@ -1,8 +1,6 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns -fwarn-unused-binds -fwarn-unused-imports -fno-warn-tabs #-}
 {-# LANGUAGE CPP #-}
 
-#define here (__FILE__ ++ ":" ++ show (__LINE__ :: Integer) ++ " ")
-
 module System.Linux.NetInfo.Probe (
 	  PingSocket
 	, withPingNewSubnets
@@ -34,16 +32,16 @@ stmTimeout' microseconds defVal f
 
 --------------------------------------------------------------------------------
 
--- | Ping all IPs in subnet
+-- | Force ping of all IPs in given subnet
 pingSubnet :: (String -> IO ()) -> Socket -> IP -> Word8 -> IO ()
 pingSubnet trace sock ipaddr mask = do
 	outProbes <- newTVarIO 0 --dummy
 	pingSubnet' trace outProbes sock ipaddr mask
 
--- | Ping all IPs in subnet
+-- | Ping all IPs in given subnet
 pingSubnet' :: (String -> IO ()) -> TVar Integer -> Socket -> IP -> Word8 -> IO ()
 pingSubnet' trace outstandingProbes sock ipaddr@(IPv4 host) mask = do
-	trace $ show (here, "Begin", mask, ipaddr)
+	trace $ show ("pingSubnet':", "Begin", mask, ipaddr)
 	let pingList = ipv4SubnetPingList host mask
 	forM_ pingList $ \h -> do
 		atomically $ modifyTVar' outstandingProbes (+1)
@@ -53,9 +51,9 @@ pingSubnet' trace outstandingProbes sock ipaddr@(IPv4 host) mask = do
 --		trace $ show (here, IPv4 h)
 --		print (here, IPv4 h)
 --		threadDelay 1000
-	trace $ show (here, "Done", ipaddr, length pingList)
+	trace $ show ("pingSubnet':", "Done", ipaddr, length pingList)
 pingSubnet' trace _ _ ip mask
-	= trace $ show (here, ip, mask, "IGNORED!")
+	= trace $ show ("pingSubnet':", ip, mask, "IGNORED!")
 
 --pingNewSubnets :: NetInfoSocket -> IO ()
 --pingNewSubnets = undefined
@@ -75,12 +73,12 @@ startPingThread nis = do
 	thread <- forkIO $ withPingSocket Nothing $ \sock -> do
 #if 1
 -- FIXME do not let sock leave the bracket
-		forkIO $ flip catch (\e -> print (here, e :: IOException)) $ forever $ do
+		forkIO $ flip catch (\e -> print ("startPingThread:", e :: IOException)) $ forever $ do
 
 			(msg, src) <- receivePingFrom sock
 			case msg of
 				Right h@IcmpHeader{icmp_type = _, code = c} -> do
-					qputstr $ show (here, "ping response from", src, h)
+					qputstr $ show ("startPingThread:", "ping response from", src, h)
 					atomically $ modifyTVar' outProbes (+(-1))
 				_ -> return ()
 #endif
@@ -113,8 +111,10 @@ startPingThread nis = do
 
 data E = Ev Event | Rq (IP, Word8) | Zilch
 
+-- | Ping socket handle
 data PingSocket = PingSocket NetInfoSocket ThreadId (TQueue (IP, Word8))
 
+-- | Force ping of all IPs in all subnets known to NetInfo
 pingAll :: PingSocket -> IO ()
 pingAll (PingSocket nis _ pingQ) = do
 	subnets <- getSubnets <$> queryNetInfo nis
@@ -124,7 +124,8 @@ pingAll (PingSocket nis _ pingQ) = do
 killPingThread :: PingSocket -> IO ()
 killPingThread (PingSocket _ thread _) = killThread thread
 
--- | Spawns a ping thread and pass its handle to inner action, thread gets killed when action ends or throws an exception.
+-- |Spawns a ping thread that periodically ping all IPs in subnets known to NetInfo and pass
+--its handle to inner action, thread gets killed when action ends or throws an exception.
 withPingNewSubnets ::
 	NetInfoSocket -- ^
 	-> (PingSocket -> IO a) -- ^

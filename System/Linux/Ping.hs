@@ -1,6 +1,5 @@
 {-# OPTIONS_GHC -fwarn-unused-binds -fwarn-unused-imports  -fwarn-incomplete-patterns -fno-warn-tabs #-}
 {-# LANGUAGE CPP, RecordWildCards  #-} 
-#define here (__FILE__ ++ ":" ++ show __LINE__ ++ " ")
 
 module System.Linux.Ping where
 
@@ -131,7 +130,7 @@ sendPing sock dst = do
 	let packet = buildPacket (fromIntegral pid) 0 B.empty
 	let addr = SockAddrInet 0 dst
 	catch (sendTo sock packet addr) $ \e -> do
-		print (here, addr, e :: IOException)
+		print ("sendPing:", addr, e :: IOException)
 --		threadDelay 1000
 		return (-1)
 

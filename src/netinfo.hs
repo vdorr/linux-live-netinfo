@@ -9,25 +9,6 @@ import System.Environment (getArgs)
 import System.Linux.NetInfo
 import System.Linux.NetInfo.Probe
 
---https://serverfault.com/questions/648140/how-to-scan-ipv6-enabled-hosts-on-my-lan
---https://superuser.com/questions/1135757/scanning-in-ipv6
-
---------------------------------------------------------------------------------
-#if 0
-putTrace :: Show a => TQueue Trace -> a -> IO ()
-putTrace q w = atomically $ writeTQueue q (Trace w)
-
-data Trace = forall a. Show a => Trace a
-
-startTraceThread :: IO (TQueue Trace)
-startTraceThread
-	= newTQueueIO
-	>>= \q -> (void $ forkIO $ forever $ atomically (readTQueue q)
-		>>= \(Trace a) -> print a)
-	>> return q
-#endif
---------------------------------------------------------------------------------
-
 --FIXME handle ctrl+c cleanly
 main :: IO ()
 main = do

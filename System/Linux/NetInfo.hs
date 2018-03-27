@@ -1,13 +1,11 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns -fwarn-unused-binds -fwarn-unused-imports -fno-warn-tabs #-}
 {-# LANGUAGE ScopedTypeVariables, CPP, RecordWildCards #-}
-#define here (__FILE__ ++ ":" ++ show (__LINE__ :: Integer) ++ " ")
 
 module System.Linux.NetInfo
 	(
 -- * Obtaining network informations
 	  IfMap, Iface(..), IfNet(..), IP(..), Remote(..)
 	, Event(..)
-#if 1
 	, NetInfoSocket
 	, startNetInfo
 	, stopNetInfo
@@ -17,7 +15,6 @@ module System.Linux.NetInfo
 	, netInfoEventsSTM
 	, newsLoop
 	, getNetInfo
-#endif
 -- * Utility functions
 	, getSubnets
 	, dumpIfMap
@@ -60,13 +57,9 @@ import Data.Serialize
 
 -- | Handle to netlink socket
 data NetInfoSocket = NIS
-	{
--- nisSock :: NetlinkSocket ,
---	  nisSwitch :: TVar Bool	, 
-	  nisNetInfo :: TVar IfMap
+	{ nisNetInfo :: TVar IfMap
 	, nisEvents :: TChan Event
 	, nisThread :: ThreadId
---	, nisDone :: TMVar ()
 	}
 
 -- | Start watching network subsystem
@@ -252,7 +245,6 @@ data IP
 	= IPv4 Word32 -- (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
 	| IPv6 (Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
 	deriving (Eq, Ord)
---FIXME for sake of consistency ipv4 should in host endiann word32 form
 
 instance Show IP where
 --	show (IPv4 (a, b, c, d)) = intercalate "." $ fmap show [a, b, c, d]
@@ -334,40 +326,40 @@ translateNewsA :: Applicative a =>
                       -> Packet Message
                       -> a (Maybe Event)
 translateNewsA trace (err@ErrorMsg {})
-	= trace (show (here, err))
+	= trace (show ("translateNewsA:", err))
 	*> pure (Just $ ErrorEvent $ show err)
 translateNewsA _ (DoneMsg {})
 	= pure Nothing
 translateNewsA trace (Packet Header{..} NLinkMsg{..} attr) --for flags see man netdevice
 	| messageType == eRTM_NEWLINK, Just name <- getLinkName attr, Just mac <- getLinkAddress attr
-		= trace (show (here, "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
+		= trace (show ("translateNewsA:", "add iface", interfaceIndex, getLinkName attr, "flags:", getFlags interfaceFlags, mac))
 		*> pure (Just $ AddIface interfaceIndex name (LinkAddress mac) (interfaceFlags .&. fIFF_UP /= 0))
 	| messageType == eRTM_DELLINK
-		= trace (show (here, "remove iface", interfaceIndex, getLinkName attr))
+		= trace (show ("translateNewsA:", "remove iface", interfaceIndex, getLinkName attr))
 		*> pure (Just $ DelIface interfaceIndex)
 	| otherwise
-		= trace (show (here, showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
+		= trace (show ("translateNewsA:", showMessageType messageType, getLinkName attr, getLinkAddress attr, testBit interfaceFlags fIFF_UP))
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NAddrMsg {..} attr)
 	| messageType == eRTM_NEWADDR, Right ip <- getIfIPAttr attr
-		= trace (show (here, "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
+		= trace (show ("translateNewsA:", "add address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ AddSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| messageType == eRTM_DELADDR, Right ip <- getIfIPAttr attr
-		= trace (show (here, "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
+		= trace (show ("translateNewsA:", "remove address", "ifi:", addrInterfaceIndex, "mask:", addrMaskLength, ip))
 		*> pure (Just $ DelSubnet addrInterfaceIndex ip (IfNet addrMaskLength))
 	| otherwise
-		= trace (show (here, showMessageType messageType, getIfIPAttr attr)) --should not happen
+		= trace (show ("translateNewsA:", showMessageType messageType, getIfIPAttr attr)) --should not happen
 		*> pure Nothing
 translateNewsA trace (Packet Header{..} NNeighMsg{..} attr)
 	| messageType == eRTM_NEWNEIGH, Just mac <- getLLAddr attr, Right ip <- getNeighDstAttr attr
 --		, testBit neighState fNUD_REACHABLE
-		= trace (show (here, "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
+		= trace (show ("translateNewsA:", "add neighbor", "ifi:", neighIfindex, mac, ip, getFlags neighState))
 		*> pure (Just $ AddNeigbour (fromIntegral neighIfindex) (LinkAddress mac) $ Remote ip) --FIXME uneasy feeling about fromIntegral
 	| messageType == eRTM_DELNEIGH, Just mac <- getLLAddr attr, Right ip <- getNeighDstAttr attr
-		= trace (show (here, "remove neighbor", "ifi:", neighIfindex, mac, ip))
+		= trace (show ("translateNewsA:", "remove neighbor", "ifi:", neighIfindex, mac, ip))
 		*> pure (Just $ DelNeighbour (fromIntegral neighIfindex) (LinkAddress mac) (Remote ip))
 	| otherwise
-		= trace (show (here, showMessageType messageType,
+		= trace (show ("translateNewsA:", showMessageType messageType,
 			getFlags neighState,
 			getLLAddr attr,
 			fmap (fmap ord.unpack) (getDstAddr attr) )) --should not happen
@@ -454,11 +446,8 @@ tapNetlink :: IO NetlinkSocket
 tapNetlink
 	= makeSocketGeneric eNETLINK_ROUTE
 	>>= \sock ->
-#if 1
 		joinMulticastGroup sock eRTNLGRP_LINK
-		*> joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
-		*> joinMulticastGroup sock eRTNLGRP_NEIGH
-		*>
-#endif
-		pure sock
+		>> joinMulticastGroup sock eRTNLGRP_IPV4_IFADDR
+		>> joinMulticastGroup sock eRTNLGRP_NEIGH
+		>> pure sock
 
