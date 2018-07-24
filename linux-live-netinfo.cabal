@@ -6,8 +6,8 @@ description:         Provides real time updates on state of network neighbourhoo
 homepage:            github.com/vdorr/linux-live-netinfo
 license:             MIT
 license-file:        LICENSE
-author:              vd
-maintainer:          v.dorrich@gmail.com
+author:              vdorr
+maintainer:          vdorr.package@gmail.com
 -- copyright:           
 category:            System
 build-type:          Simple
@@ -35,7 +35,7 @@ executable netinfo
 
 
 library
-  exposed-modules:     System.Linux.Ping, System.Linux.NetInfo, System.Linux.NetInfo.Probe
+  exposed-modules:     System.Linux.NetInfo
   -- other-modules:       
   other-extensions:    CPP, RecordWildCards
   build-depends:       netlink == 1.1.1.0
