@@ -88,7 +88,7 @@ netInfoEventsSTM = (atomically . dupTChan) . nisEvents
 
 -- | Convenience function that returns snapshot of network informations
 getNetInfo :: IO IfMap
-getNetInfo = withNetInfo queryNetInfo
+getNetInfo = withNetInfo queryNetInfo  --FIXME won't work due to recvOne in receiveNews
 
 --------------------------------------------------------------------------------
 
