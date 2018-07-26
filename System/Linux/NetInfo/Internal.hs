@@ -9,9 +9,8 @@ import System.Linux.Netlink.Route
 import System.Linux.Netlink.Constants
 import Data.Word
 import qualified Data.Map as M
---import Control.Concurrent
+import Control.Concurrent
 import Control.Concurrent.STM
---import Control.Concurrent
 import qualified Data.Set as S
 import Data.ByteString.Char8 (ByteString, unpack) --append, init, pack, 
 import qualified Data.ByteString as B
@@ -27,7 +26,6 @@ import Network.Socket (hostAddress6ToTuple, hostAddressToTuple)
 import Numeric (showHex)
 import Data.List
 import Data.Serialize
-
 
 --------------------------------------------------------------------------------
 
@@ -340,7 +338,7 @@ askForNews q sock = catMaybes <$> (translateNews <$>) <$> query sock q
 
 receiveNews :: NetlinkSocket -> IO [Event]
 receiveNews sock = do
-	news <- (translateNews <$>) <$> recvOne sock
+	news <- (translateNews <$>) <$> (threadWaitRead (getNetlinkFd sock) *> recvOne sock)
 	case catMaybes news of
 		[] -> receiveNews sock
 		news' -> return news'
