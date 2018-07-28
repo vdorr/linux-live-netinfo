@@ -34,9 +34,9 @@ import Control.Exception
 
 -- | Handle to netlink socket
 data NetInfoSocket = NIS
-	{ nisNetInfo :: TVar IfMap
-	, nisEvents :: TChan Event
-	, nisThread :: ThreadId
+	{ nisNetInfo :: !(TVar IfMap)
+	, nisEvents :: !(TChan Event)
+	, nisThread :: !(ThreadId)
 	}
 
 -- | Start watching network subsystem

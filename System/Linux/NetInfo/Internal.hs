@@ -8,7 +8,7 @@ import System.Linux.Netlink
 import System.Linux.Netlink.Route
 import System.Linux.Netlink.Constants
 import Data.Word
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Control.Concurrent
 import Control.Concurrent.STM
 import qualified Data.Set as S
@@ -45,28 +45,28 @@ type IfMap = M.Map Word32 Iface -- iface index
 
 -- | State of single interface
 data Iface = Iface
-	{ ifaceName :: String -- ^ interface name
-	, ifaceAddr :: LinkAddress -- ^ MAC address
-	, ifaceNets :: M.Map IP IfNet -- ^ map from IP addresses to subnets
-	, ifaceRemotes :: M.Map LinkAddress (S.Set Remote) -- ^ map from MAC of remote device to set of remote IPs
-	, ifaceUp :: Bool -- ^ True if interface is Up
+	{ ifaceName :: !String -- ^ interface name
+	, ifaceAddr :: !LinkAddress -- ^ MAC address
+	, ifaceNets :: !(M.Map IP IfNet) -- ^ map from IP addresses to subnets
+	, ifaceRemotes :: !(M.Map LinkAddress (S.Set Remote)) -- ^ map from MAC of remote device to set of remote IPs
+	, ifaceUp :: !Bool -- ^ True if interface is Up
 	} deriving (Show, Eq, Ord)
 --	, ifFlags :: [Int]
 
 -- | Subnet details
 data IfNet = IfNet
-	{ ifnLength :: Word8 -- ^ netmask
+	{ ifnLength :: !Word8 -- ^ netmask
 	} 
 	deriving (Show, Eq, Ord)
 
 -- | IP address of remote device
-data Remote = Remote IP
+data Remote = Remote !IP
 	deriving (Show, Eq, Ord)
 
 -- | IP address, v4 or v6
 data IP
-	= IPv4 Word32 -- (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
-	| IPv6 (Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
+	= IPv4 !Word32 -- (Word8, Word8, Word8, Word8) -- ^ goes well with 'Network.Socket.tupleToHostAddress'
+	| IPv6 !(Word32, Word32, Word32, Word32) -- ^ possibly (?) goes well with 'Network.Socket.tupleToHostAddress6'
 	deriving (Eq, Ord)
 
 instance Show IP where
