@@ -1,8 +1,13 @@
 
 name:                linux-live-netinfo
 version:             0.1.0.0
-synopsis:            Provide updates on Linux network subsystem
-description:         Provides real time updates on state of network neighbourhood (NICs, IPs, ARP table) of Linux system.
+
+synopsis:            Provides state of Linux network subsystem
+
+description:         Provides snapshot of Linux network configuration
+                     or real time state updates of configuration and
+                     neighbourhood (NICs, IPs, ARP table).
+
 homepage:            github.com/vdorr/linux-live-netinfo
 license:             MIT
 license-file:        LICENSE

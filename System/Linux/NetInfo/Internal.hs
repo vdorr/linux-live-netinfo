@@ -48,7 +48,8 @@ data Iface = Iface
 	{ ifaceName :: !String -- ^ interface name
 	, ifaceAddr :: !LinkAddress -- ^ MAC address
 	, ifaceNets :: !(M.Map IP IfNet) -- ^ map from IP addresses to subnets
-	, ifaceRemotes :: !(M.Map LinkAddress (S.Set Remote)) -- ^ map from MAC of remote device to set of remote IPs
+	, ifaceRemotes :: !(M.Map LinkAddress (S.Set Remote))
+	-- ^ map from MAC of remote device to set of remote IPs (ARP table)
 	, ifaceUp :: !Bool -- ^ True if interface is Up
 	} deriving (Show, Eq, Ord)
 --	, ifFlags :: [Int]
@@ -183,7 +184,7 @@ getNeighDstAttr attr = maybe (Left "no Dst attribute") decodeIP $ getDstAddr att
 
 --------------------------------------------------------------------------------
 
--- | Event received from netlink sock
+-- | Event received from netlink socket, originating interface is given by 'Word32' index
 data Event
 	= AddSubnet Word32 IP IfNet -- ^ New IP address added on interface identified by index
 	| DelSubnet Word32 IP IfNet

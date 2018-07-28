@@ -1,10 +1,10 @@
 
 module System.Linux.NetInfo
 	(
--- * Types
-	  Iface(..), IfNet(..), IP(..), Remote(..), IfMap
 -- * Obtaining network informations
-	, getNetInfo
+	  getNetInfo
+-- * Types
+	, Iface(..), IfNet(..), IP(..), Remote(..), IfMap
 -- * Watching network subsystem
 	, NetInfoSocket
 	, Event(..)
@@ -14,10 +14,10 @@ module System.Linux.NetInfo
 	, queryNetInfo
 	, netInfoVarSTM
 	, netInfoEventsSTM
-	, newsLoop
 -- * Utility functions
 	, getSubnets
 	, dumpIfMap
+	, newsLoop
 ) where
 
 import System.Linux.NetInfo.Internal
@@ -39,7 +39,7 @@ data NetInfoSocket = NIS
 	, nisThread :: !(ThreadId)
 	}
 
--- | Start watching network subsystem
+-- | Open netlink socket and start watching network subsystem
 startNetInfo :: IO NetInfoSocket
 startNetInfo = do
 	nm <- emptyNMap
@@ -70,7 +70,7 @@ startNetInfo = do
 withNetInfo :: (NetInfoSocket -> IO a) -> IO a
 withNetInfo = bracket startNetInfo stopNetInfo
 
--- | Stop watching
+-- | Stop watching and close socket
 stopNetInfo :: NetInfoSocket -> IO ()
 stopNetInfo = killThread . nisThread
 
@@ -87,15 +87,17 @@ netInfoEventsSTM :: NetInfoSocket -> IO (TChan Event)
 netInfoEventsSTM = (atomically . dupTChan) . nisEvents
 
 -- | Convenience function that returns snapshot of network informations
+-- as 'Map' with interface index as key and 'Iface' as value
 getNetInfo :: IO IfMap
 getNetInfo = withNetInfo queryNetInfo  --FIXME won't work due to recvOne in receiveNews
 
 --------------------------------------------------------------------------------
 
--- | event is Nothing on first call and when NetInfo has to resort to polling
+-- | Event loop, callback gets both current snapshot of network state and latest event
 newsLoop ::
 	NetInfoSocket -- ^ socket to listen on
-	-> ((Maybe Event, IfMap) -> IO (Maybe a)) -- ^ return Just to stop looping
+	-> ((Maybe Event, IfMap) -> IO (Maybe a)) -- ^ return Just to stop looping,
+-- event is Nothing on first call and when library resort to polling
 	-> IO a -- ^ returns value that callback returned
 newsLoop nis callback
 	= atomically (dupTChan $ nisEvents nis)
